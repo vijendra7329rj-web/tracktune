@@ -1,0 +1,358 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: SoundTrace API — Music identification, history, and trending
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: identify
+    description: Music identification
+  - name: history
+    description: Search history
+  - name: trending
+    description: Trending songs dashboard
+  - name: songs
+    description: Song details
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /identify:
+    post:
+      operationId: identifySong
+      tags: [identify]
+      summary: Identify music from a video URL
+      description: Receives a video URL, simulates audio recognition, returns song metadata with Spotify and YouTube links
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentifyInput"
+      responses:
+        "200":
+          description: Song identified successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SongResult"
+        "404":
+          description: Song not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /history:
+    get:
+      operationId: getHistory
+      tags: [history]
+      summary: Get search history
+      description: Returns all previously identified songs grouped by date
+      responses:
+        "200":
+          description: History retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoryEntry"
+    delete:
+      operationId: clearHistory
+      tags: [history]
+      summary: Clear all history
+      description: Deletes all search history entries
+      responses:
+        "200":
+          description: History cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /history/{id}:
+    delete:
+      operationId: deleteHistoryEntry
+      tags: [history]
+      summary: Delete a single history entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Entry deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /trending:
+    get:
+      operationId: getTrending
+      tags: [trending]
+      summary: Get trending songs in India
+      description: Returns top 50 trending songs ranked by search count. Free users get top 3 only.
+      parameters:
+        - name: genre
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, bollywood, punjabi, south, pop, edm]
+        - name: region
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, north, south, west, east]
+      responses:
+        "200":
+          description: Trending songs retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendingResponse"
+
+  /songs/{id}:
+    get:
+      operationId: getSong
+      tags: [songs]
+      summary: Get song details by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Song details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SongResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [identify]
+      summary: Get app usage stats
+      description: Returns total searches, songs identified, trending count
+      responses:
+        "200":
+          description: Stats retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    IdentifyInput:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          description: The video URL from Instagram, YouTube, Facebook, or any social platform
+
+    SongResult:
+      type: object
+      required:
+        - id
+        - title
+        - artist
+        - album
+        - year
+        - genre
+        - spotifyUrl
+        - youtubeUrl
+        - spotifyId
+        - youtubeId
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        artist:
+          type: string
+        album:
+          type: string
+        year:
+          type: integer
+        genre:
+          type: string
+        spotifyUrl:
+          type: string
+        youtubeUrl:
+          type: string
+        spotifyId:
+          type: string
+        youtubeId:
+          type: string
+        previewUrl:
+          type: ["string", "null"]
+
+    HistoryEntry:
+      type: object
+      required:
+        - id
+        - title
+        - artist
+        - genre
+        - searchedAt
+        - spotifyUrl
+        - youtubeUrl
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        artist:
+          type: string
+        genre:
+          type: string
+        searchedAt:
+          type: string
+          format: date-time
+        spotifyUrl:
+          type: string
+        youtubeUrl:
+          type: string
+        spotifyId:
+          type: string
+        youtubeId:
+          type: string
+
+    TrendingEntry:
+      type: object
+      required:
+        - rank
+        - id
+        - title
+        - artist
+        - genre
+        - searchCount
+        - growthPercent
+        - isViral
+        - spotifyUrl
+        - youtubeUrl
+      properties:
+        rank:
+          type: integer
+        id:
+          type: integer
+        title:
+          type: string
+        artist:
+          type: string
+        genre:
+          type: string
+        searchCount:
+          type: integer
+        growthPercent:
+          type: integer
+        isViral:
+          type: boolean
+        spotifyUrl:
+          type: string
+        youtubeUrl:
+          type: string
+
+    TrendingResponse:
+      type: object
+      required:
+        - songs
+        - isPremium
+        - totalShown
+      properties:
+        songs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendingEntry"
+        isPremium:
+          type: boolean
+        totalShown:
+          type: integer
+
+    AppStats:
+      type: object
+      required:
+        - totalSearches
+        - totalSongs
+        - trendingCount
+        - todaySearches
+      properties:
+        totalSearches:
+          type: integer
+        totalSongs:
+          type: integer
+        trendingCount:
+          type: integer
+        todaySearches:
+          type: integer
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
