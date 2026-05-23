@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install --no-frozen-lockfile && pnpm --filter @workspace/soundtrace run build"
+  command = "rm -f pnpm-lock.yaml && pnpm install && pnpm --filter @workspace/soundtrace run build"
   publish = "artifacts/soundtrace/dist"
 
 [build.environment]
