@@ -1,0 +1,6 @@
+[build]
+  command = "pnpm install --no-frozen-lockfile && pnpm --filter @workspace/soundtrace run build"
+  publish = "artifacts/soundtrace/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
