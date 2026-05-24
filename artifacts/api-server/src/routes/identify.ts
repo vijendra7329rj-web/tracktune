@@ -1,17 +1,60 @@
 import { Router } from "express";
 import { db, songsTable, historyTable } from "@workspace/db";
 import { IdentifySongBody } from "@workspace/api-zod";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { createHash, createHmac } from "crypto";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import fetch from "node-fetch";
+import FormData from "form-data";
 
+const execAsync = promisify(exec);
 const router = Router();
 
-const MOCK_SONGS = [
-  { title: "Kesariya", artist: "Arijit Singh", album: "Brahmastra", year: 2022, genre: "Bollywood", spotifyId: "0tRvKyFLGHqLHpFnrMnJPn", youtubeId: "BddP6PYo2gs", spotifyUrl: "https://open.spotify.com/track/0tRvKyFLGHqLHpFnrMnJPn", youtubeUrl: "https://www.youtube.com/watch?v=BddP6PYo2gs" },
-  { title: "Pasoori", artist: "Ali Sethi", album: "Coke Studio Season 14", year: 2022, genre: "Indie", spotifyId: "0OiFy5rfFb8BTMY3raWxMT", youtubeId: "Z-m1jQEoEOQ", spotifyUrl: "https://open.spotify.com/track/0OiFy5rfFb8BTMY3raWxMT", youtubeUrl: "https://www.youtube.com/watch?v=Z-m1jQEoEOQ" },
-  { title: "Lover", artist: "Diljit Dosanjh", album: "MoonChild Era", year: 2023, genre: "Punjabi", spotifyId: "1tDFwRRVCjsRMoFyOuvRxT", youtubeId: "MfCzSFrBNGg", spotifyUrl: "https://open.spotify.com/track/1tDFwRRVCjsRMoFyOuvRxT", youtubeUrl: "https://www.youtube.com/watch?v=MfCzSFrBNGg" },
-  { title: "Tere Vaaste", artist: "Varun Jain", album: "Zara Hatke Zara Bachke", year: 2023, genre: "Bollywood", spotifyId: "0CNoXUwJrrNm8uXJioG8Sv", youtubeId: "y8opyKmInD8", spotifyUrl: "https://open.spotify.com/track/0CNoXUwJrrNm8uXJioG8Sv", youtubeUrl: "https://www.youtube.com/watch?v=y8opyKmInD8" },
-  { title: "Unstoppable", artist: "Sia", album: "This Is Acting", year: 2016, genre: "Pop", spotifyId: "6M14BiCN00nOsba4JaYsHW", youtubeId: "cNAdtkSjSps", spotifyUrl: "https://open.spotify.com/track/6M14BiCN00nOsba4JaYsHW", youtubeUrl: "https://www.youtube.com/watch?v=cNAdtkSjSps" },
-  { title: "Apna Bana Le", artist: "Arijit Singh", album: "Bhediya", year: 2022, genre: "Bollywood", spotifyId: "2rk4DLMHW6Qjhf7XMakmBQ", youtubeId: "9TvSBiqhUDw", spotifyUrl: "https://open.spotify.com/track/2rk4DLMHW6Qjhf7XMakmBQ", youtubeUrl: "https://www.youtube.com/watch?v=9TvSBiqhUDw" },
-];
+const ACR_HOST = process.env.ACR_HOST!;
+const ACR_ACCESS_KEY = process.env.ACR_ACCESS_KEY!;
+const ACR_ACCESS_SECRET = process.env.ACR_ACCESS_SECRET!;
+
+async function downloadAudio(url: string, outputPath: string): Promise<void> {
+  const command = `yt-dlp --no-playlist -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${url}"`;
+  await execAsync(command, { timeout: 60000 });
+}
+
+async function trimAudio(inputPath: string, outputPath: string): Promise<void> {
+  const command = `ffmpeg -i "${inputPath}" -sseof -4 -t 4 -y "${outputPath}"`;
+  await execAsync(command, { timeout: 30000 });
+}
+
+async function recognizeSong(audioPath: string): Promise<any> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const stringToSign = `POST\n/v1/identify\n${ACR_ACCESS_KEY}\naudio\n1\n${timestamp}`;
+  const signature = createHmac("sha1", ACR_ACCESS_SECRET)
+    .update(stringToSign)
+    .digest("base64");
+
+  const audioData = fs.readFileSync(audioPath);
+  const form = new FormData();
+  form.append("sample", audioData, {
+    filename: "sample.mp3",
+    contentType: "audio/mpeg",
+  });
+  form.append("access_key", ACR_ACCESS_KEY);
+  form.append("data_type", "audio");
+  form.append("signature_version", "1");
+  form.append("signature", signature);
+  form.append("sample_bytes", audioData.length.toString());
+  form.append("timestamp", timestamp.toString());
+
+  const response = await fetch(`https://${ACR_HOST}/v1/identify`, {
+    method: "POST",
+    body: form,
+    headers: form.getHeaders(),
+  });
+
+  return response.json();
+}
 
 router.post("/identify", async (req, res) => {
   const parsed = IdentifySongBody.safeParse(req.body);
@@ -26,24 +69,48 @@ router.post("/identify", async (req, res) => {
     return;
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-
-  const randomIdx = Math.floor(Math.random() * MOCK_SONGS.length);
-  const mock = MOCK_SONGS[randomIdx];
+  const tmpDir = os.tmpdir();
+  const rawAudio = path.join(tmpDir, `raw_${Date.now()}.mp3`);
+  const trimmedAudio = path.join(tmpDir, `trim_${Date.now()}.mp3`);
 
   try {
+    await downloadAudio(url, rawAudio);
+    await trimAudio(rawAudio, trimmedAudio);
+    const result = await recognizeSong(trimmedAudio);
+
+    if (result.status?.code !== 0) {
+      res.status(404).json({ error: "Song not recognized. Try a different video." });
+      return;
+    }
+
+    const music = result.metadata?.music?.[0];
+    if (!music) {
+      res.status(404).json({ error: "No song found in this video." });
+      return;
+    }
+
+    const title = music.title || "Unknown";
+    const artist = music.artists?.[0]?.name || "Unknown";
+    const album = music.album?.name || "Unknown";
+    const year = music.release_date?.split("-")[0] || "Unknown";
+    const genre = music.genres?.[0]?.name || "Unknown";
+    const spotifyId = music.external_metadata?.spotify?.track?.id || null;
+    const youtubeId = music.external_metadata?.youtube?.vid || null;
+    const spotifyUrl = spotifyId ? `https://open.spotify.com/track/${spotifyId}` : null;
+    const youtubeUrl = youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : null;
+
     const [song] = await db
       .insert(songsTable)
       .values({
-        title: mock.title,
-        artist: mock.artist,
-        album: mock.album,
-        year: mock.year,
-        genre: mock.genre,
-        spotifyId: mock.spotifyId,
-        youtubeId: mock.youtubeId,
-        spotifyUrl: mock.spotifyUrl,
-        youtubeUrl: mock.youtubeUrl,
+        title,
+        artist,
+        album,
+        year,
+        genre,
+        spotifyId,
+        youtubeId,
+        spotifyUrl,
+        youtubeUrl,
         previewUrl: null,
       })
       .returning();
@@ -59,8 +126,6 @@ router.post("/identify", async (req, res) => {
       youtubeId: song.youtubeId,
     });
 
-    req.log.info({ songId: song.id, title: song.title }, "Song identified");
-
     res.json({
       id: song.id,
       title: song.title,
@@ -74,9 +139,13 @@ router.post("/identify", async (req, res) => {
       youtubeId: song.youtubeId,
       previewUrl: song.previewUrl,
     });
+
   } catch (err) {
     req.log.error({ err }, "Failed to identify song");
     res.status(500).json({ error: "Failed to identify song" });
+  } finally {
+    try { fs.unlinkSync(rawAudio); } catch {}
+    try { fs.unlinkSync(trimmedAudio); } catch {}
   }
 });
 
