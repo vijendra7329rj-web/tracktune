@@ -15,7 +15,7 @@ router.post("/identify", async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request. Provide a valid video URL." });
     }
-    
+
     const { url } = parsed.data;
     if (!url || url.trim().length === 0) {
         return res.status(400).json({ error: "URL is required." });
@@ -24,8 +24,8 @@ router.post("/identify", async (req, res) => {
     const tmpFilePath = path.join("/tmp", `audio_${Date.now()}.m4a`);
 
     try {
-        console.log(` Starting download for: ${url}`);
-        
+        console.log(`Starting download for: ${url}`);
+
         await youtubedl(url, {
             f: "bestaudio",
             output: tmpFilePath,
@@ -33,7 +33,7 @@ router.post("/identify", async (req, res) => {
         });
 
         const fileSize = fs.statSync(tmpFilePath).size;
-        console.log(` Audio file size: ${fileSize} bytes`);
+        console.log(`Audio file size: ${fileSize} bytes`);
 
         const host = process.env.ACR_HOST || "identify-ap-southeast-1.acrcloud.com";
         const accessKey = process.env.ACR_ACCESS_KEY;
@@ -45,7 +45,11 @@ router.post("/identify", async (req, res) => {
         const timestamp = Math.floor(Date.now() / 1000).toString();
 
         const stringToSign = ["POST", endpoint, accessKey, dataType, signatureVersion, timestamp].join("\n");
-        const signature = crypto.createHmac("sha1", accessSecret).update(Buffer.from(stringToSign, "utf-8")).digest().toString("base64");
+        const signature = crypto
+            .createHmac("sha1", accessSecret!)
+            .update(Buffer.from(stringToSign, "utf-8"))
+            .digest()
+            .toString("base64");
 
         const form = new FormData();
         form.append("sample", fs.createReadStream(tmpFilePath));
@@ -56,7 +60,7 @@ router.post("/identify", async (req, res) => {
         form.append("sample_bytes", fileSize);
         form.append("timestamp", timestamp);
 
-        console.log(` Sending to ACRCloud...`);
+        console.log(`Sending to ACRCloud...`);
         const acrResponse = await axios.post(`https://${host}${endpoint}`, form, {
             headers: form.getHeaders(),
         });
@@ -64,56 +68,80 @@ router.post("/identify", async (req, res) => {
         if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
 
         const acrData = acrResponse.data;
-        console.log(` ACRCloud Success!`);
+        console.log(`ACRCloud response received`);
 
-        if (acrData.status.msg === "Success") {
-            const music = acrData.metadata.music;
-            
-            const songTitle = music.title || "Unknown Title";
-            const songArtist = music.artists ? music.artists.map((a: any) => a.name).join(", ") : "Unknown Artist";
-            const songAlbum = music.album ? music.album.name : "Unknown Album";
-            
-            // CRITICAL FIX: Use null instead of "" so Postgres doesn't crash on unique constraints
-            const spotId = music.external_metadata?.spotify?.track?.id || null;
-            const ytId = music.external_metadata?.youtube?.vid || null;
+        if (acrData?.status?.msg === "Success") {
+            const music = acrData.metadata.music[0]; // ✅ ACRCloud returns an ARRAY — always take index [0]
+
+            // ✅ Extract all fields safely — use null if missing, never use ""
+            const songTitle  = music?.title                                        ?? "Unknown Title";
+            const songArtist = music?.artists?.map((a: any) => a.name).join(", ") ?? "Unknown Artist";
+            const songAlbum  = music?.album?.name                                  ?? "Unknown Album";
+            const songYear   = music?.release_date
+                                 ? parseInt(music.release_date.substring(0, 4))
+                                 : null; // ✅ Real year from ACRCloud, not hardcoded 2024
+            const songGenre  = music?.genres?.[0]?.name ?? null; // ✅ Real genre from ACRCloud
+
+            const spotId  = music?.external_metadata?.spotify?.track?.id ?? null;
+            const ytId    = music?.external_metadata?.youtube?.vid        ?? null;
             const spotUrl = spotId ? `https://open.spotify.com/track/${spotId}` : null;
-            const ytUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : null;
+            const ytUrl   = ytId   ? `https://www.youtube.com/watch?v=${ytId}`  : null;
 
-            // Save to Database
-            const [song] = await db.insert(songsTable).values({
-                title: songTitle,
-                artist: songArtist,
-                album: songAlbum,
-                year: 2024,
-                genre: "Pop", 
-                spotifyId: spotId,
-                youtubeId: ytId,
-                spotifyUrl: spotUrl,
-                youtubeUrl: ytUrl,
-                previewUrl: null,
-            }).returning();
+            // ✅ THE MAIN FIX:
+            // onConflictDoNothing() — if this exact song already exists in DB, 
+            // just skip inserting and move on. No more crash!
+            const [song] = await db
+                .insert(songsTable)
+                .values({
+                    title:      songTitle,
+                    artist:     songArtist,
+                    album:      songAlbum,
+                    year:       songYear,
+                    genre:      songGenre,
+                    spotifyId:  spotId,
+                    youtubeId:  ytId,
+                    spotifyUrl: spotUrl,
+                    youtubeUrl: ytUrl,
+                    previewUrl: null,
+                })
+                .onConflictDoNothing() // ✅ This one line fixes the unique constraint crash
+                .returning();
 
+            // ✅ Safety check — if song already existed, .returning() gives empty array
+            // We need to handle that case so the app doesn't crash
+            if (!song) {
+                return res.status(200).json({
+                    message: "Song already exists in database.",
+                    title:   songTitle,
+                    artist:  songArtist,
+                });
+            }
+
+            // ✅ Save to history
             await db.insert(historyTable).values({
-                songId: song.id,
-                title: song.title,
-                artist: song.artist,
-                genre: song.genre,
+                songId:     song.id,
+                title:      song.title,
+                artist:     song.artist,
+                genre:      song.genre,
                 spotifyUrl: song.spotifyUrl,
                 youtubeUrl: song.youtubeUrl,
-                spotifyId: song.spotifyId,
-                youtubeId: song.youtubeId,
+                spotifyId:  song.spotifyId,
+                youtubeId:  song.youtubeId,
             });
 
-            return res.json({ 
-                id: song.id, 
-                title: song.title, 
-                artist: song.artist,
-                album: song.album,
+            return res.json({
+                id:         song.id,
+                title:      song.title,
+                artist:     song.artist,
+                album:      song.album,
                 spotifyUrl: song.spotifyUrl,
-                youtubeUrl: song.youtubeUrl
+                youtubeUrl: song.youtubeUrl,
             });
+
         } else {
-            return res.status(404).json({ error: "ACRCloud could not identify the song in this video." });
+            return res.status(404).json({
+                error: "ACRCloud could not identify the song in this video.",
+            });
         }
 
     } catch (error: any) {
