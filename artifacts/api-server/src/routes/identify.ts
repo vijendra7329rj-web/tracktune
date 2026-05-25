@@ -25,7 +25,7 @@ router.post("/identify", async (req, res) => {
 
     try {
         console.log(` Starting download for: ${url}`);
-        // Download ONLY audio - much faster and smaller for ACRCloud
+        // Download ONLY audio for blazing fast speed
         await youtubedl(url, {
             f: "bestaudio",
             output: tmpFilePath,
@@ -33,11 +33,7 @@ router.post("/identify", async (req, res) => {
         });
 
         const fileSize = fs.statSync(tmpFilePath).size;
-        console.log(` Download complete. Audio file size: ${fileSize} bytes`);
-
-        if (fileSize < 10000) {
-            throw new Error("File is suspiciously small. The download may have been blocked.");
-        }
+        console.log(` Audio file size: ${fileSize} bytes`);
 
         const host = process.env.ACR_HOST || "identify-ap-southeast-1.acrcloud.com";
         const accessKey = process.env.ACR_ACCESS_KEY;
@@ -68,25 +64,54 @@ router.post("/identify", async (req, res) => {
         if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
 
         const acrData = acrResponse.data;
-        console.log(` ACRCloud Raw Response:`, JSON.stringify(acrData));
+        console.log(` ACRCloud Success!`);
 
         if (acrData.status.msg === "Success") {
             const music = acrData.metadata.music;
-            const songTitle = music.title;
-            const songArtist = music.artists ? music.artists.map((a: any) => a.name).join(", ") : "Unknown";
             
-            // Save to DB
+            // Safe Fallbacks to prevent Database crashes
+            const songTitle = music.title || "Unknown Title";
+            const songArtist = music.artists ? music.artists.map((a: any) => a.name).join(", ") : "Unknown Artist";
+            const songAlbum = music.album ? music.album.name : "Unknown Album";
+            const spotId = music.external_metadata?.spotify?.track?.id || "";
+            const ytId = music.external_metadata?.youtube?.vid || "";
+            const spotUrl = spotId ? `https://open.spotify.com/track/${spotId}` : "";
+            const ytUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : "";
+
+            // Save to Database safely
             const [song] = await db.insert(songsTable).values({
                 title: songTitle,
                 artist: songArtist,
-                album: music.album ? music.album.name : "",
+                album: songAlbum,
                 year: 2024,
                 genre: "Pop", 
-                spotifyId: music.external_metadata?.spotify?.track?.id || null,
-                youtubeId: music.external_metadata?.youtube?.vid || null,
+                spotifyId: spotId,
+                youtubeId: ytId,
+                spotifyUrl: spotUrl,
+                youtubeUrl: ytUrl,
+                previewUrl: "",
             }).returning();
 
-            return res.json({ id: song.id, title: song.title, artist: song.artist });
+            await db.insert(historyTable).values({
+                songId: song.id,
+                title: song.title,
+                artist: song.artist,
+                genre: song.genre,
+                spotifyUrl: song.spotifyUrl,
+                youtubeUrl: song.youtubeUrl,
+                spotifyId: song.spotifyId,
+                youtubeId: song.youtubeId,
+            });
+
+            // Return clean data to your UI
+            return res.json({ 
+                id: song.id, 
+                title: song.title, 
+                artist: song.artist,
+                album: song.album,
+                spotifyUrl: song.spotifyUrl,
+                youtubeUrl: song.youtubeUrl
+            });
         } else {
             return res.status(404).json({ error: "ACRCloud could not identify the song in this video." });
         }
