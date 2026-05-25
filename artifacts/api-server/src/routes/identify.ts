@@ -25,7 +25,7 @@ router.post("/identify", async (req, res) => {
 
     try {
         console.log(` Starting download for: ${url}`);
-        // Download ONLY audio for blazing fast speed
+        
         await youtubedl(url, {
             f: "bestaudio",
             output: tmpFilePath,
@@ -69,16 +69,17 @@ router.post("/identify", async (req, res) => {
         if (acrData.status.msg === "Success") {
             const music = acrData.metadata.music;
             
-            // Safe Fallbacks to prevent Database crashes
             const songTitle = music.title || "Unknown Title";
             const songArtist = music.artists ? music.artists.map((a: any) => a.name).join(", ") : "Unknown Artist";
             const songAlbum = music.album ? music.album.name : "Unknown Album";
-            const spotId = music.external_metadata?.spotify?.track?.id || "";
-            const ytId = music.external_metadata?.youtube?.vid || "";
-            const spotUrl = spotId ? `https://open.spotify.com/track/${spotId}` : "";
-            const ytUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : "";
+            
+            // CRITICAL FIX: Use null instead of "" so Postgres doesn't crash on unique constraints
+            const spotId = music.external_metadata?.spotify?.track?.id || null;
+            const ytId = music.external_metadata?.youtube?.vid || null;
+            const spotUrl = spotId ? `https://open.spotify.com/track/${spotId}` : null;
+            const ytUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : null;
 
-            // Save to Database safely
+            // Save to Database
             const [song] = await db.insert(songsTable).values({
                 title: songTitle,
                 artist: songArtist,
@@ -89,7 +90,7 @@ router.post("/identify", async (req, res) => {
                 youtubeId: ytId,
                 spotifyUrl: spotUrl,
                 youtubeUrl: ytUrl,
-                previewUrl: "",
+                previewUrl: null,
             }).returning();
 
             await db.insert(historyTable).values({
@@ -103,7 +104,6 @@ router.post("/identify", async (req, res) => {
                 youtubeId: song.youtubeId,
             });
 
-            // Return clean data to your UI
             return res.json({ 
                 id: song.id, 
                 title: song.title, 
