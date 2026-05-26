@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="TrackTune identifies songs from Instagram Reels, YouTube Shorts, TikTok videos, and video links."
+    />
+    <meta name="theme-color" content="#F7F7F5" />
+    <title>TrackTune - Find Songs From Reels</title>
+    <link rel="preconnect" href="https://tracktune.onrender.com" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <nav class="topbar" aria-label="TrackTune navigation">
+        <a class="brand" href="./" aria-label="TrackTune home">
+          <span class="brand-mark" aria-hidden="true">TT</span>
+          <span>TrackTune</span>
+        </a>
+
+        <button class="ghost-button" id="premiumButton" type="button">
+          Premium
+        </button>
+      </nav>
+
+      <section class="hero-section" aria-labelledby="heroTitle">
+        <div class="hero-copy">
+          <p class="eyebrow">For reels, shorts, memes, and edits</p>
+          <h1 id="heroTitle">Find the song hiding inside any video link.</h1>
+          <p class="hero-text">
+            Paste an Instagram Reel, YouTube Shorts, TikTok, or direct video URL.
+            TrackTune checks the last few seconds and brings back the song details.
+          </p>
+        </div>
+
+        <section class="search-panel glass-card" aria-label="Song identification form">
+          <div class="usage-row">
+            <span id="usageLabel">Free searches today: 0/5</span>
+            <span id="healthBadge" class="status-pill status-checking">Checking API</span>
+          </div>
+
+          <form id="identifyForm" class="identify-form">
+            <label class="input-label" for="videoUrl">Video URL</label>
+            <div class="input-wrap">
+              <input
+                id="videoUrl"
+                name="videoUrl"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="Paste Instagram, YouTube Shorts, TikTok, or video URL"
+                required
+              />
+              <button class="paste-button" id="pasteButton" type="button">
+                Paste
+              </button>
+            </div>
+
+            <button class="primary-button" id="identifyButton" type="submit">
+              <span class="button-text">Identify Song</span>
+              <span class="button-loader" aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <p class="helper-text">
+            Free MVP limit is 5 searches per day on this device. Premium billing is coming later.
+          </p>
+        </section>
+      </section>
+
+      <section class="state-section" aria-live="polite">
+        <div id="loadingState" class="loading-card glass-card hidden">
+          <div class="sound-wave" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <h2>Listening to the final seconds...</h2>
+            <p>Render free servers can take a moment to wake up. Keep this tab open.</p>
+          </div>
+        </div>
+
+        <article id="resultCard" class="result-card glass-card hidden">
+          <div class="artwork" id="artworkBox" aria-hidden="true">
+            <span>TT</span>
+          </div>
+
+          <div class="result-content">
+            <p class="eyebrow">Song found</p>
+            <h2 id="songTitle">Song title</h2>
+            <p id="songArtist" class="artist-name">Artist</p>
+            <p id="songAlbum" class="album-name"></p>
+
+            <div id="previewWrap" class="preview-wrap hidden">
+              <audio id="previewAudio" controls preload="none"></audio>
+            </div>
+
+            <div class="result-actions">
+              <a id="spotifyLink" class="link-button spotify hidden" href="#" target="_blank" rel="noreferrer">
+                Open Spotify
+              </a>
+              <a id="youtubeLink" class="link-button youtube hidden" href="#" target="_blank" rel="noreferrer">
+                Open YouTube
+              </a>
+            </div>
+          </div>
+        </article>
+
+        <div id="errorCard" class="message-card error-card glass-card hidden">
+          <h2>Could not identify this song</h2>
+          <p id="errorMessage">Please try a different public video link.</p>
+        </div>
+      </section>
+
+      <section class="trust-strip" aria-label="Supported platforms">
+        <span>Instagram Reels</span>
+        <span>YouTube Shorts</span>
+        <span>TikTok</span>
+        <span>Direct video links</span>
+      </section>
+    </main>
+
+    <div id="premiumModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="premiumTitle">
+      <div class="modal-card glass-card">
+        <button class="close-button" id="closePremium" type="button" aria-label="Close premium popup">
+          X
+        </button>
+        <p class="eyebrow">Premium placeholder</p>
+        <h2 id="premiumTitle">Unlimited searches are coming soon.</h2>
+        <p>
+          For the MVP, TrackTune gives each device 5 free searches per day.
+          Later we can connect Firebase login and Razorpay for a Rs. 99/month plan.
+        </p>
+        <button class="primary-button modal-action" id="modalOkButton" type="button">
+          Got it
+        </button>
+      </div>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
