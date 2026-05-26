@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="TrackTune">
+  <rect width="512" height="512" rx="112" fill="#1A1A1A"/>
+  <path fill="#F7F7F5" d="M138 166h236v54h-88v154h-60V220h-88v-54Z"/>
+  <path fill="#9EE6C1" d="M142 338c42-45 82-47 122-16 30 23 61 24 106-20l28 34c-56 61-111 63-164 24-25-19-47-17-70 8l-22-30Z"/>
+</svg>
