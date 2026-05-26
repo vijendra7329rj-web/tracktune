@@ -1,0 +1,27 @@
+﻿{
+  "name": "TrackTune",
+  "short_name": "TrackTune",
+  "description": "Identify songs from Reels, Shorts, TikTok videos, and video links.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F7F5",
+  "theme_color": "#F7F7F5",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "shared_url"
+    }
+  }
+}

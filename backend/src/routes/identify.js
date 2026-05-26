@@ -1,6 +1,7 @@
-﻿import { Router } from "express";
-import { db, songsTable, historyTable } from "@workspace/db";
-import { IdentifySongBody } from "@workspace/api-zod";
+import { Router } from "express";
+import { db } from "../db.js";
+import { songs, history } from "../schema.js";
+import { eq, and } from "drizzle-orm";
 import youtubedl from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
@@ -19,66 +20,52 @@ const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
-type SamplePlan = {
-  label: string;
-  start: number;
-  filter: string;
-  path: string;
-};
+function extractUrl(text) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const matches = text.match(urlRegex);
+  return matches ? matches[0] : null;
+}
 
-type CandidateMatch = {
-  title: string;
-  artist: string;
-  album: string;
-  score: number;
-  spotifyId: string;
-  youtubeId: string;
-  spotifyUrl: string;
-  youtubeUrl: string;
-  matchedSample: string;
-  recognitionMethod: string;
-};
-
-function cleanText(value: unknown): string {
+function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function isUnknownValue(value: string): boolean {
+function isUnknownValue(value) {
   const normalized = value.trim().toLowerCase();
   return normalized === "" || normalized === "unknown" || normalized === "unknown title" || normalized === "unknown artist";
 }
 
-function uniqueKey(match: CandidateMatch): string {
+function uniqueKey(match) {
   return `${match.title.toLowerCase()}::${match.artist.toLowerCase()}`;
 }
 
-function getSpotifyUrl(spotifyId: string): string {
+function getSpotifyUrl(spotifyId) {
   return spotifyId ? `https://open.spotify.com/track/${spotifyId}` : "";
 }
 
-function getYoutubeUrl(youtubeId: string): string {
+function getYoutubeUrl(youtubeId) {
   return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
 }
 
-async function runTool(command: string, args: string[], timeout = 30_000): Promise<{ stdout: string; stderr: string }> {
+async function runTool(command, args, timeout = 30000) {
   const result = await execFileAsync(command, args, {
     timeout,
     maxBuffer: 1024 * 1024 * 10,
     encoding: "utf8",
   });
-
   return {
     stdout: String(result.stdout || ""),
     stderr: String(result.stderr || ""),
   };
 }
 
-async function getDurationSeconds(filePath: string): Promise<number> {
+async function getDurationSeconds(filePath) {
   try {
     const { stdout } = await runTool(
       FFPROBE_PATH,
       ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", filePath],
-      20_000,
+      20000,
     );
     const duration = Number.parseFloat(stdout.trim());
     return Number.isFinite(duration) && duration > 0 ? duration : SAMPLE_SECONDS;
@@ -88,27 +75,13 @@ async function getDurationSeconds(filePath: string): Promise<number> {
   }
 }
 
-async function measureMeanVolume(filePath: string, start: number): Promise<number> {
+async function measureMeanVolume(filePath, start) {
   try {
     const { stderr } = await runTool(
       FFMPEG_PATH,
-      [
-        "-hide_banner",
-        "-ss",
-        start.toFixed(2),
-        "-t",
-        SAMPLE_SECONDS.toString(),
-        "-i",
-        filePath,
-        "-af",
-        "volumedetect",
-        "-f",
-        "null",
-        "-",
-      ],
-      45_000,
+      ["-hide_banner", "-ss", start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", filePath, "-af", "volumedetect", "-f", "null", "-"],
+      45000,
     );
-
     const match = stderr.match(/mean_volume:\s*(-?\d+(?:\.\d+)?) dB/i);
     return match ? Number.parseFloat(match[1]) : -100;
   } catch (error) {
@@ -117,8 +90,8 @@ async function measureMeanVolume(filePath: string, start: number): Promise<numbe
   }
 }
 
-function dedupeStarts(starts: Array<{ label: string; start: number }>) {
-  const seen = new Set<number>();
+function dedupeStarts(starts) {
+  const seen = new Set();
   return starts.filter((item) => {
     const rounded = Math.max(0, Math.round(item.start));
     if (seen.has(rounded)) return false;
@@ -128,7 +101,7 @@ function dedupeStarts(starts: Array<{ label: string; start: number }>) {
   });
 }
 
-async function findLoudestStart(filePath: string, duration: number): Promise<number> {
+async function findLoudestStart(filePath, duration) {
   const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
   const candidates = dedupeStarts([
     { label: "loudness-0", start: 0 },
@@ -148,11 +121,10 @@ async function findLoudestStart(filePath: string, duration: number): Promise<num
       loudest = candidate.start;
     }
   }
-
   return loudest;
 }
 
-async function buildSamplePlans(sourcePath: string, tempDir: string, debugId: string): Promise<SamplePlan[]> {
+async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const duration = await getDurationSeconds(sourcePath);
   const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
   const loudestStart = await findLoudestStart(sourcePath, duration);
@@ -165,7 +137,7 @@ async function buildSamplePlans(sourcePath: string, tempDir: string, debugId: st
   ]);
 
   const normalized = "aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11";
-  const plans: SamplePlan[] = [];
+  const plans = [];
 
   for (const base of baseStarts) {
     plans.push({
@@ -192,79 +164,46 @@ async function buildSamplePlans(sourcePath: string, tempDir: string, debugId: st
       path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.m4a`),
     });
   }
-
   return plans.slice(0, Math.max(1, MAX_ATTEMPTS));
 }
 
-async function createSample(sourcePath: string, plan: SamplePlan) {
+async function createSample(sourcePath, plan) {
   await runTool(
     FFMPEG_PATH,
-    [
-      "-hide_banner",
-      "-y",
-      "-ss",
-      plan.start.toFixed(2),
-      "-t",
-      SAMPLE_SECONDS.toString(),
-      "-i",
-      sourcePath,
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-af",
-      plan.filter,
-      "-b:a",
-      "64k",
-      plan.path,
-    ],
-    60_000,
+    ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "16000", "-af", plan.filter, "-b:a", "64k", plan.path],
+    60000,
   );
 }
 
-function parseMatches(acrData: any, plan: SamplePlan): CandidateMatch[] {
-  const musicList = Array.isArray(acrData?.metadata?.music)
-    ? acrData.metadata.music
-    : acrData?.metadata?.music
-      ? [acrData.metadata.music]
-      : [];
-
-  return musicList
-    .map((music: any) => {
-      const title = cleanText(music?.title);
-      const artist = Array.isArray(music?.artists)
-        ? music.artists.map((item: any) => cleanText(item?.name)).filter(Boolean).join(", ")
-        : cleanText(music?.artist);
-      const album = cleanText(music?.album?.name);
-      const spotifyId = cleanText(music?.external_metadata?.spotify?.track?.id);
-      const youtubeId = cleanText(music?.external_metadata?.youtube?.vid);
-
-      return {
-        title,
-        artist,
-        album,
-        score: Number(music?.score || 0),
-        spotifyId,
-        youtubeId,
-        spotifyUrl: getSpotifyUrl(spotifyId),
-        youtubeUrl: getYoutubeUrl(youtubeId),
-        matchedSample: plan.label,
-        recognitionMethod: "acrcloud-multi-sample-v2",
-      };
-    })
-    .filter((match: CandidateMatch) => !isUnknownValue(match.title) && !isUnknownValue(match.artist));
+function parseMatches(acrData, plan) {
+  const musicList = Array.isArray(acrData?.metadata?.music) ? acrData.metadata.music : acrData?.metadata?.music ? [acrData.metadata.music] : [];
+  return musicList.map((music) => {
+    const title = cleanText(music?.title);
+    const artist = Array.isArray(music?.artists) ? music.artists.map((item) => cleanText(item?.name)).filter(Boolean).join(", ") : cleanText(music?.artist);
+    const album = cleanText(music?.album?.name);
+    const yearStr = cleanText(music?.release_date);
+    const year = yearStr ? parseInt(yearStr.substring(0, 4)) : new Date().getFullYear();
+    const genre = music?.genres && music.genres.length > 0 ? cleanText(music.genres[0].name) : "Pop";
+    const spotifyId = cleanText(music?.external_metadata?.spotify?.track?.id);
+    const youtubeId = cleanText(music?.external_metadata?.youtube?.vid);
+    return {
+      title, artist, album, year, genre,
+      score: Number(music?.score || 0),
+      spotifyId, youtubeId,
+      spotifyUrl: getSpotifyUrl(spotifyId),
+      youtubeUrl: getYoutubeUrl(youtubeId),
+      matchedSample: plan.label,
+      recognitionMethod: "acrcloud-multi-sample-v2",
+    };
+  }).filter((match) => !isUnknownValue(match.title) && !isUnknownValue(match.artist));
 }
 
-async function identifyWithAcrCloud(samplePath: string, plan: SamplePlan) {
+async function identifyWithAcrCloud(samplePath, plan) {
   const host = process.env.ACR_HOST || "identify-ap-southeast-1.acrcloud.com";
   const accessKey = process.env.ACR_ACCESS_KEY;
   const accessSecret = process.env.ACR_ACCESS_SECRET;
-
-  if (!accessKey || !accessSecret) {
-    throw new Error("TrackTune is missing ACRCloud server keys.");
-  }
-
+  if (!accessKey || !accessSecret) throw new Error("TrackTune is missing ACRCloud server keys.");
+  
   const endpoint = "/v1/identify";
   const signatureVersion = "1";
   const dataType = "audio";
@@ -284,64 +223,49 @@ async function identifyWithAcrCloud(samplePath: string, plan: SamplePlan) {
 
   const acrResponse = await axios.post(`https://${host}${endpoint}`, form, {
     headers: form.getHeaders(),
-    timeout: 30_000,
+    timeout: 30000,
   });
 
-  return {
-    status: acrResponse.data?.status,
-    matches: parseMatches(acrResponse.data, plan),
-  };
+  return { status: acrResponse.data?.status, matches: parseMatches(acrResponse.data, plan) };
 }
 
-function chooseBestMatch(matches: CandidateMatch[]): CandidateMatch | null {
+function chooseBestMatch(matches) {
   if (matches.length === 0) return null;
   return [...matches].sort((a, b) => b.score - a.score)[0] || null;
 }
 
-function topUniqueMatches(matches: CandidateMatch[]) {
-  const byKey = new Map<string, CandidateMatch>();
-
+function topUniqueMatches(matches) {
+  const byKey = new Map();
   for (const match of matches) {
     const existing = byKey.get(uniqueKey(match));
-    if (!existing || match.score > existing.score) {
-      byKey.set(uniqueKey(match), match);
-    }
+    if (!existing || match.score > existing.score) byKey.set(uniqueKey(match), match);
   }
-
   return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
 router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
-  const parsed = IdentifySongBody.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid request. Provide a valid video URL.", debugId });
-  }
-
-  const url = parsed.data.url.trim();
-  if (!url) {
-    return res.status(400).json({ error: "URL is required.", debugId });
-  }
-
-  try {
-    new URL(url);
-  } catch {
-    return res.status(400).json({ error: "Please paste a full public video URL.", debugId });
-  }
+  let rawUrl = req.body.url || "";
+  
+  // Extract actual URL if it contains extra text from a native share
+  const url = extractUrl(rawUrl);
+  if (!url) return res.status(400).json({ error: "Please share or paste a valid public video URL.", debugId });
 
   const tempDir = "/tmp";
+  // Make sure temp directory exists
+  if (!fs.existsSync(tempDir)) {
+     fs.mkdirSync(tempDir, { recursive: true });
+  }
   const sourcePath = path.join(tempDir, `tracktune_${debugId}_source.m4a`);
   const tempFiles = [sourcePath];
 
   try {
     console.log(`[${debugId}] Starting download for: ${url}`);
-
-    await youtubedl(url, {
-      f: "bestaudio",
-      output: sourcePath,
-      noWarnings: true,
-      noCallHome: true,
-    });
+    await youtubedl(url, { f: "bestaudio", output: sourcePath, noWarnings: true, noCallHome: true });
+    
+    if (!fs.existsSync(sourcePath)) {
+        throw new Error("Download failed - file not created");
+    }
 
     const fileSize = fs.statSync(sourcePath).size;
     console.log(`[${debugId}] Source audio file size: ${fileSize} bytes`);
@@ -349,26 +273,18 @@ router.post("/identify", async (req, res) => {
     const samplePlans = await buildSamplePlans(sourcePath, tempDir, debugId);
     tempFiles.push(...samplePlans.map((plan) => plan.path));
 
-    const allMatches: CandidateMatch[] = [];
-    let bestMatch: CandidateMatch | null = null;
+    const allMatches = [];
+    let bestMatch = null;
 
     for (const plan of samplePlans) {
       console.log(`[${debugId}] Creating sample ${plan.label} from ${plan.start}s`);
       await createSample(sourcePath, plan);
-
       console.log(`[${debugId}] Sending sample ${plan.label} to ACRCloud`);
       const result = await identifyWithAcrCloud(plan.path, plan);
-      const statusCode = result.status?.code ?? "unknown";
-      const statusMessage = result.status?.msg ?? "unknown";
-      console.log(`[${debugId}] ACRCloud status for ${plan.label}: ${statusCode} ${statusMessage}`);
-
       allMatches.push(...result.matches);
       bestMatch = chooseBestMatch(allMatches);
 
-      if (bestMatch && bestMatch.score >= HIGH_CONFIDENCE_SCORE) {
-        console.log(`[${debugId}] High confidence match found: ${bestMatch.title} - ${bestMatch.artist} (${bestMatch.score})`);
-        break;
-      }
+      if (bestMatch && bestMatch.score >= HIGH_CONFIDENCE_SCORE) break;
     }
 
     const possibleMatches = topUniqueMatches(allMatches);
@@ -376,74 +292,49 @@ router.post("/identify", async (req, res) => {
 
     if (!bestMatch) {
       return res.status(404).json({
-        error: "TrackTune could not identify this song yet. The audio may be too edited, noisy, or missing from the recognition catalog.",
-        confidence: 0,
-        matchedSample: "",
-        recognitionMethod: "acrcloud-multi-sample-v2",
-        possibleMatches: [],
-        debugId,
+        error: "TrackTune could not identify this song. The audio may be too edited, noisy, or missing from the catalog.",
+        confidence: 0, matchedSample: "", recognitionMethod: "acrcloud-multi-sample-v2", possibleMatches: [], debugId,
       });
     }
 
-    const [song] = await db
-      .insert(songsTable)
-      .values({
-        title: bestMatch.title,
-        artist: bestMatch.artist,
-        album: bestMatch.album,
-        year: 2024,
-        genre: "Pop",
-        spotifyId: bestMatch.spotifyId,
-        youtubeId: bestMatch.youtubeId,
-        spotifyUrl: bestMatch.spotifyUrl,
-        youtubeUrl: bestMatch.youtubeUrl,
-        previewUrl: null,
-      })
-      .returning();
+    // Deduplicate songs by title and artist
+    let song = null;
+    const existingSongs = await db.select().from(songs)
+      .where(and(eq(songs.title, bestMatch.title), eq(songs.artist, bestMatch.artist)))
+      .limit(1);
 
-    await db.insert(historyTable).values({
-      songId: song.id,
-      title: song.title,
-      artist: song.artist,
-      genre: song.genre,
-      spotifyUrl: song.spotifyUrl,
-      youtubeUrl: song.youtubeUrl,
-      spotifyId: song.spotifyId,
-      youtubeId: song.youtubeId,
+    if (existingSongs.length > 0) {
+      song = existingSongs[0];
+    } else {
+      const [newSong] = await db.insert(songs).values({
+        title: bestMatch.title, artist: bestMatch.artist, album: bestMatch.album,
+        year: bestMatch.year, genre: bestMatch.genre, spotifyId: bestMatch.spotifyId,
+        youtubeId: bestMatch.youtubeId, spotifyUrl: bestMatch.spotifyUrl,
+        youtubeUrl: bestMatch.youtubeUrl, previewUrl: null,
+      }).returning();
+      song = newSong;
+    }
+
+    await db.insert(history).values({
+      songId: song.id, title: song.title, artist: song.artist, genre: song.genre,
+      spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl,
+      spotifyId: song.spotifyId, youtubeId: song.youtubeId,
     });
 
     return res.json({
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      spotifyUrl: song.spotifyUrl,
-      youtubeUrl: song.youtubeUrl,
-      previewUrl: song.previewUrl,
-      confidence: bestMatch.score,
-      matchedSample: bestMatch.matchedSample,
-      recognitionMethod: bestMatch.recognitionMethod,
-      possibleMatches,
-      debugId,
+      id: song.id, title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre,
+      spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl, previewUrl: song.previewUrl,
+      confidence: bestMatch.score, matchedSample: bestMatch.matchedSample,
+      recognitionMethod: bestMatch.recognitionMethod, possibleMatches, debugId,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error(`[${debugId}] Identification Error:`, error);
-    const message = error?.code === "ENOENT"
-      ? "TrackTune audio processing is missing FFmpeg on the server."
-      : "TrackTune could not process this video right now. Try another public Reel or YouTube Shorts link.";
-
-    return res.status(500).json({
-      error: message,
-      confidence: 0,
-      matchedSample: "",
-      recognitionMethod: "acrcloud-multi-sample-v2",
-      possibleMatches: [],
-      debugId,
-    });
+    const message = error?.code === "ENOENT" ? "Server missing FFmpeg/yt-dlp." : "TrackTune could not process this video. Try another link.";
+    return res.status(500).json({ error: message, confidence: 0, matchedSample: "", recognitionMethod: "acrcloud", possibleMatches: [], debugId });
   } finally {
     for (const file of tempFiles) {
       if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
+        try { fs.unlinkSync(file); } catch (e) {}
       }
     }
   }
