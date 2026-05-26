@@ -37,15 +37,15 @@ function isUnknownValue(value) {
 }
 
 function uniqueKey(match) {
-  return ${match.title.toLowerCase()}::;
+  return `${match.title.toLowerCase()}::${match.artist.toLowerCase()}`;
 }
 
 function getSpotifyUrl(spotifyId) {
-  return spotifyId ? https://open.spotify.com/track/ : "";
+  return spotifyId ? `https://open.spotify.com/track/${spotifyId}` : "";
 }
 
 function getYoutubeUrl(youtubeId) {
-  return youtubeId ? https://www.youtube.com/watch?v= : "";
+  return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
 }
 
 async function runTool(command, args, timeout = 30000) {
@@ -141,27 +141,27 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
 
   for (const base of baseStarts) {
     plans.push({
-      label: ${base.label}-clean,
+      label: `${base.label}-clean`,
       start: base.start,
       filter: normalized,
-      path: path.join(tempDir, ${debugId}__clean.m4a),
+      path: path.join(tempDir, `${debugId}_${base.label}_clean.m4a`),
     });
   }
 
   const priorityBase = baseStarts[0] || { label: "start", start: 0 };
   const variants = [
-    { suffix: "slowed", filter: tempo=0.92, },
-    { suffix: "sped", filter: tempo=1.08, },
-    { suffix: "pitch-down", filter: setrate=15040,aresample=16000,atempo=1.064, },
-    { suffix: "pitch-up", filter: setrate=16960,aresample=16000,atempo=0.943, },
+    { suffix: "slowed", filter: `atempo=0.92,${normalized}` },
+    { suffix: "sped", filter: `atempo=1.08,${normalized}` },
+    { suffix: "pitch-down", filter: `asetrate=15040,aresample=16000,atempo=1.064,${normalized}` },
+    { suffix: "pitch-up", filter: `asetrate=16960,aresample=16000,atempo=0.943,${normalized}` },
   ];
 
   for (const variant of variants) {
     plans.push({
-      label: ${priorityBase.label}-,
+      label: `${priorityBase.label}-${variant.suffix}`,
       start: priorityBase.start,
       filter: variant.filter,
-      path: path.join(tempDir, ${debugId}__.m4a),
+      path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.m4a`),
     });
   }
   return plans.slice(0, Math.max(1, MAX_ATTEMPTS));
@@ -221,7 +221,7 @@ async function identifyWithAcrCloud(samplePath, plan) {
   form.append("sample_bytes", sampleBytes);
   form.append("timestamp", timestamp);
 
-  const acrResponse = await axios.post(https://System.Management.Automation.Internal.Host.InternalHost, form, {
+  const acrResponse = await axios.post(`https://${host}${endpoint}`, form, {
     headers: form.getHeaders(),
     timeout: 30000,
   });
@@ -256,11 +256,11 @@ router.post("/identify", async (req, res) => {
   if (!fs.existsSync(tempDir)) {
      fs.mkdirSync(tempDir, { recursive: true });
   }
-  const sourcePath = path.join(tempDir, 	racktune__source.m4a);
+  const sourcePath = path.join(tempDir, `tracktune_${debugId}_source.m4a`);
   const tempFiles = [sourcePath];
 
   try {
-    console.log([] Starting download for: );
+    console.log(`[${debugId}] Starting download for: ${url}`);
     await youtubedl(url, { f: "bestaudio", output: sourcePath, noWarnings: true, noCallHome: true });
     
     if (!fs.existsSync(sourcePath)) {
@@ -268,7 +268,7 @@ router.post("/identify", async (req, res) => {
     }
 
     const fileSize = fs.statSync(sourcePath).size;
-    console.log([] Source audio file size:  bytes);
+    console.log(`[${debugId}] Source audio file size: ${fileSize} bytes`);
 
     const samplePlans = await buildSamplePlans(sourcePath, tempDir, debugId);
     tempFiles.push(...samplePlans.map((plan) => plan.path));
@@ -277,9 +277,9 @@ router.post("/identify", async (req, res) => {
     let bestMatch = null;
 
     for (const plan of samplePlans) {
-      console.log([] Creating sample  from s);
+      console.log(`[${debugId}] Creating sample ${plan.label} from ${plan.start}s`);
       await createSample(sourcePath, plan);
-      console.log([] Sending sample  to ACRCloud);
+      console.log(`[${debugId}] Sending sample ${plan.label} to ACRCloud`);
       const result = await identifyWithAcrCloud(plan.path, plan);
       allMatches.push(...result.matches);
       bestMatch = chooseBestMatch(allMatches);
@@ -328,7 +328,7 @@ router.post("/identify", async (req, res) => {
       recognitionMethod: bestMatch.recognitionMethod, possibleMatches, debugId,
     });
   } catch (error) {
-    console.error([] Identification Error:, error);
+    console.error(`[${debugId}] Identification Error:`, error);
     const message = error?.code === "ENOENT" ? "Server missing FFmpeg/yt-dlp." : "TrackTune could not process this video. Try another link.";
     return res.status(500).json({ error: message, confidence: 0, matchedSample: "", recognitionMethod: "acrcloud", possibleMatches: [], debugId });
   } finally {
