@@ -1,0 +1,8 @@
+[build]
+  command = "rm -f pnpm-lock.yaml && pnpm install && pnpm --filter @workspace/soundtrace run build"
+  publish = "artifacts/tracktune/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PORT = "8080"
+  BASE_PATH = "/"
