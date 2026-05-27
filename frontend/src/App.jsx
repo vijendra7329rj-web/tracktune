@@ -1,22 +1,44 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Router, Route, Switch } from 'wouter';
 import HomeScreen from './pages/HomeScreen.jsx';
 import ResultScreen from './pages/ResultScreen.jsx';
 import BottomNav from './components/BottomNav.jsx';
 
 // Dummy components for now
-const HistoryScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4">History</h1><p className="text-gray-400">Coming soon</p></div>;
-const TrendingScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4">Trending</h1><p className="text-gray-400">Coming soon</p></div>;
-const ProfileScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4">Profile</h1><p className="text-gray-400">Coming soon</p></div>;
+const HistoryScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4 text-[#13dfbf]">History</h1><p className="text-gray-400">Coming soon</p></div>;
+const TrendingScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4 text-[#13dfbf]">Trending</h1><p className="text-gray-400">Coming soon</p></div>;
+const ProfileScreen = () => <div className="p-6 pt-12 text-center text-white"><h1 className="text-2xl font-bold mb-4 text-[#13dfbf]">Profile</h1><p className="text-gray-400">Coming soon</p></div>;
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#f0f0f0] overflow-x-hidden font-sans pb-24">
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-900/20 blur-[100px] mix-blend-screen animate-blob"></div>
-        <div className="absolute top-[40%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-pink-900/20 blur-[100px] mix-blend-screen animate-blob animation-delay-2000"></div>
-        <div className="absolute bottom-[-10%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-blue-900/20 blur-[100px] mix-blend-screen animate-blob animation-delay-4000"></div>
+    <div className="min-h-screen bg-[#021110] text-[#f0f0f0] overflow-x-hidden font-sans pb-24 relative select-none">
+      {/* Liquid Gooey Morphic Background Blobs */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 liquid-container opacity-40">
+          <div className="absolute top-[10%] left-[10%] w-[250px] h-[250px] rounded-full bg-[#13dfbf] blur-[15px] animate-blob"></div>
+          <div className="absolute top-[40%] right-[5%] w-[280px] h-[280px] rounded-full bg-[#0b6660] blur-[15px] animate-blob animation-delay-2000"></div>
+          <div className="absolute bottom-[15%] left-[20%] w-[320px] h-[320px] rounded-full bg-[#043330] blur-[15px] animate-blob animation-delay-4000"></div>
+        </div>
       </div>
+      
+      {/* Hidden SVG Gooey Filter for Liquid Morphism */}
+      <svg xmlns="http://www.w3.org/2000/svg" version="1.1" className="hidden">
+        <defs>
+          <filter id="liquid-goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur" />
+            <feColorMatrix 
+              in="blur" 
+              mode="matrix" 
+              values="1 0 0 0 0  
+                      0 1 0 0 0  
+                      0 0 1 0 0  
+                      0 0 0 30 -12" 
+              result="goo" 
+            />
+            <feBlend in="SourceGraphic" in2="goo" />
+          </filter>
+        </defs>
+      </svg>
       
       <div className="relative z-10 w-full max-w-[430px] mx-auto min-h-screen flex flex-col">
         <Router>
@@ -28,9 +50,9 @@ export default function App() {
             <Route path="/profile" component={ProfileScreen} />
             <Route>
               <div className="flex flex-col items-center justify-center min-h-[60vh] p-6">
-                <h1 className="text-4xl font-black mb-2 text-white">404</h1>
+                <h1 className="text-4xl font-black mb-2 text-[#13dfbf]">404</h1>
                 <p className="text-gray-400 mb-6">Page not found</p>
-                <a href="/" className="px-6 py-3 bg-white/10 rounded-full font-bold">Go Home</a>
+                <a href="/" className="px-6 py-3 bg-[#13dfbf]/10 border border-[#13dfbf]/20 rounded-full font-bold text-[#13dfbf]">Go Home</a>
               </div>
             </Route>
           </Switch>

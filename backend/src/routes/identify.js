@@ -261,7 +261,14 @@ router.post("/identify", async (req, res) => {
 
   try {
     console.log(`[${debugId}] Starting download for: ${url}`);
-    await youtubedl(url, { f: "bestaudio", output: sourcePath, noWarnings: true, noCallHome: true });
+    await youtubedl(url, {
+      extractAudio: true,
+      audioFormat: "m4a",
+      f: "bestaudio",
+      output: sourcePath,
+      noWarnings: true,
+      noCallHome: true
+    });
     
     if (!fs.existsSync(sourcePath)) {
         throw new Error("Download failed - file not created");
