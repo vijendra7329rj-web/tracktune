@@ -23,7 +23,7 @@ export default function BottomNav() {
                 {isActive && (
                   <div className="absolute inset-0 bg-white/10 rounded-full scale-90 transition-transform duration-300"></div>
                 )}
-                <div className={elative z-10 transition-colors duration-300 }>
+                <div className={`relative z-10 transition-colors duration-300 ${isActive ? 'text-white' : 'text-gray-500'}`}>
                   {item.icon}
                 </div>
               </div>

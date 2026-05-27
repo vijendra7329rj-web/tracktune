@@ -17,8 +17,8 @@ export default function ResultScreen({ params }) {
     if (navigator.share && song) {
       try {
         await navigator.share({
-          title: TrackTune - \,
-          text: Check out \ by \!,
+          title: `TrackTune - ${song.title}`,
+          text: `Check out ${song.title} by ${song.artist}!`,
           url: window.location.href,
         });
       } catch (err) {
@@ -41,7 +41,6 @@ export default function ResultScreen({ params }) {
 
       <div className="w-full px-6 flex flex-col items-center mt-4">
         <div className="w-64 h-64 bg-gradient-to-br from-gray-800 to-black rounded-3xl mb-8 shadow-2xl border border-white/10 flex items-center justify-center overflow-hidden relative">
-          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1614113489855-66422ad300a4?w=500&q=80')] bg-cover bg-center opacity-40 mix-blend-overlay"></div>
           <MusicIcon />
         </div>
 
@@ -61,7 +60,7 @@ export default function ResultScreen({ params }) {
           <button onClick={shareSong} className="glass-pill px-6 py-3 flex items-center gap-2 text-sm font-semibold">
             <Share2 size={16} /> Share
           </button>
-          <button onClick={() => {navigator.clipboard.writeText(\ by \)}} className="glass-pill px-6 py-3 flex items-center gap-2 text-sm font-semibold">
+          <button onClick={() => {navigator.clipboard.writeText(`${song.title} by ${song.artist}`)}} className="glass-pill px-6 py-3 flex items-center gap-2 text-sm font-semibold">
             <Copy size={16} /> Copy
           </button>
         </div>

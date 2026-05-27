@@ -35,7 +35,7 @@ export default function HomeScreen() {
     try {
       const data = await identifySong(targetUrl);
       sessionStorage.setItem('current_song', JSON.stringify(data));
-      setLocation(/result/ + data.id);
+      setLocation(`/result/${data.id}`);
     } catch (err) {
       setError("We couldn't identify a song in this video. Please try another one.");
       setLoading(false);
