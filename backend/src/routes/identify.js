@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { songs, history } from "../schema.js";
+import { songsTable, historyTable } from "../schema.js";
 import { eq, and } from "drizzle-orm";
 import youtubedl from "yt-dlp-exec";
 import fs from "fs";
@@ -299,14 +299,14 @@ router.post("/identify", async (req, res) => {
 
     // Deduplicate songs by title and artist
     let song = null;
-    const existingSongs = await db.select().from(songs)
-      .where(and(eq(songs.title, bestMatch.title), eq(songs.artist, bestMatch.artist)))
+    const existingSongs = await db.select().from(songsTable)
+      .where(and(eq(songsTable.title, bestMatch.title), eq(songsTable.artist, bestMatch.artist)))
       .limit(1);
 
     if (existingSongs.length > 0) {
       song = existingSongs[0];
     } else {
-      const [newSong] = await db.insert(songs).values({
+      const [newSong] = await db.insert(songsTable).values({
         title: bestMatch.title, artist: bestMatch.artist, album: bestMatch.album,
         year: bestMatch.year, genre: bestMatch.genre, spotifyId: bestMatch.spotifyId,
         youtubeId: bestMatch.youtubeId, spotifyUrl: bestMatch.spotifyUrl,
@@ -315,7 +315,7 @@ router.post("/identify", async (req, res) => {
       song = newSong;
     }
 
-    await db.insert(history).values({
+    await db.insert(historyTable).values({
       songId: song.id, title: song.title, artist: song.artist, genre: song.genre,
       spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl,
       spotifyId: song.spotifyId, youtubeId: song.youtubeId,
