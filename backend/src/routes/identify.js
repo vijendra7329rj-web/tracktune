@@ -256,23 +256,28 @@ router.post("/identify", async (req, res) => {
   if (!fs.existsSync(tempDir)) {
      fs.mkdirSync(tempDir, { recursive: true });
   }
-  const sourcePath = path.join(tempDir, `tracktune_${debugId}_source.m4a`);
-  const tempFiles = [sourcePath];
+  const sourceTemplate = path.join(tempDir, `tracktune_${debugId}_source.%(ext)s`);
+  const tempFiles = [];
 
   try {
     console.log(`[${debugId}] Starting download for: ${url}`);
     await youtubedl(url, {
-      extractAudio: true,
-      audioFormat: "m4a",
       f: "bestaudio",
-      output: sourcePath,
+      output: sourceTemplate,
       noWarnings: true,
       noCallHome: true
     });
     
-    if (!fs.existsSync(sourcePath)) {
-        throw new Error("Download failed - file not created");
+    // Dynamically find the downloaded file in /tmp with the native extension
+    const files = fs.readdirSync(tempDir);
+    const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
+    
+    if (!downloadedFile) {
+      throw new Error("Download failed - file not created");
     }
+    
+    const sourcePath = path.join(tempDir, downloadedFile);
+    tempFiles.push(sourcePath);
 
     const fileSize = fs.statSync(sourcePath).size;
     console.log(`[${debugId}] Source audio file size: ${fileSize} bytes`);
