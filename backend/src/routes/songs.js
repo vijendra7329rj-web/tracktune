@@ -19,13 +19,13 @@ router.get("/songs/:id", async (req, res) => {
 
 router.get("/stats", async (req, res) => {
   try {
-    const [{ count: totalSongs }] = await db.select({ count: sqlcount(*) }).from(songs);
-    const [{ count: totalSearches }] = await db.select({ count: sqlcount(*) }).from(history);
-    const [{ count: trendingCount }] = await db.select({ count: sqlcount(*) }).from(trending);
+    const [{ count: totalSongs }] = await db.select({ count: sql`count(*)` }).from(songs);
+    const [{ count: totalSearches }] = await db.select({ count: sql`count(*)` }).from(history);
+    const [{ count: trendingCount }] = await db.select({ count: sql`count(*)` }).from(trending);
     // Rough today estimate
-    const [{ count: todaySearches }] = await db.select({ count: sqlcount(*) })
+    const [{ count: todaySearches }] = await db.select({ count: sql`count(*)` })
       .from(history)
-      .where(sqlsearched_at > now() - interval '1 day');
+      .where(sql`searched_at > now() - interval '1 day'`);
       
     res.json({
       totalSearches: Number(totalSearches),
