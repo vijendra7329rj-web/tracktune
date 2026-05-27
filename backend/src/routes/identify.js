@@ -250,10 +250,21 @@ function getYoutubeId(url) {
   return (match && match[2].length === 11) ? match[2] : null;
 }
 
+const BROWSER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Origin": "https://cobalt.tools",
+  "Referer": "https://cobalt.tools/"
+};
+
 async function getHealthyInvidiousInstances() {
   try {
     console.log("Fetching dynamic Invidious instances in real-time...");
-    const response = await axios.get("https://api.invidious.io/instances.json", { timeout: 6000 });
+    const response = await axios.get("https://api.invidious.io/instances.json", { 
+      headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
+      timeout: 6000 
+    });
     const instancesData = response.data || [];
     
     const healthy = instancesData
@@ -290,7 +301,10 @@ async function downloadWithInvidious(youtubeId, targetPath) {
       console.log(`Trying Invidious instance: ${instance} for video ID: ${youtubeId}`);
       
       const infoUrl = `${instance}/api/v1/videos/${youtubeId}`;
-      const response = await axios.get(infoUrl, { timeout: 10000 });
+      const response = await axios.get(infoUrl, { 
+        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
+        timeout: 10000 
+      });
       
       const formats = response.data?.adaptiveFormats || [];
       const audioFormats = formats.filter(f => f.type && f.type.startsWith("audio/"));
@@ -317,6 +331,7 @@ async function downloadWithInvidious(youtubeId, targetPath) {
       const streamResponse = await axios({
         method: "get",
         url: streamUrl,
+        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
         responseType: "stream",
         timeout: 30000
       });
@@ -356,21 +371,41 @@ async function downloadWithCobalt(videoUrl, targetPath) {
     try {
       console.log(`Trying Cobalt instance: ${instance} for URL: ${videoUrl}`);
       
-      const response = await axios.post(
-        instance,
-        {
-          url: videoUrl,
-          downloadMode: "audio",
-          audioFormat: "mp3"
-        },
-        {
-          headers: {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
+      // Try posting to root / first
+      let response;
+      try {
+        response = await axios.post(
+          instance,
+          {
+            url: videoUrl,
+            downloadMode: "audio",
+            audioFormat: "mp3"
           },
-          timeout: 15000
+          {
+            headers: BROWSER_HEADERS,
+            timeout: 15000
+          }
+        );
+      } catch (postErr) {
+        // If root / fails with 404/405, attempt /api/json as fallback for legacy instances
+        if (postErr.response && (postErr.response.status === 404 || postErr.response.status === 405)) {
+          console.log(`Root endpoint failed, trying legacy /api/json on ${instance}`);
+          response = await axios.post(
+            `${instance.replace(/\/$/, "")}/api/json`,
+            {
+              url: videoUrl,
+              downloadMode: "audio",
+              audioFormat: "mp3"
+            },
+            {
+              headers: BROWSER_HEADERS,
+              timeout: 15000
+            }
+          );
+        } else {
+          throw postErr;
         }
-      );
+      }
 
       const status = response.data?.status;
       const downloadUrl = response.data?.url;
@@ -385,6 +420,7 @@ async function downloadWithCobalt(videoUrl, targetPath) {
       const streamResponse = await axios({
         method: "get",
         url: downloadUrl,
+        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
         responseType: "stream",
         timeout: 30000
       });
