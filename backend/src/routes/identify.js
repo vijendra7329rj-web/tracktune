@@ -250,8 +250,28 @@ function getYoutubeId(url) {
   return (match && match[2].length === 11) ? match[2] : null;
 }
 
-async function downloadWithInvidious(youtubeId, targetPath) {
-  const instances = [
+async function getHealthyInvidiousInstances() {
+  try {
+    console.log("Fetching dynamic Invidious instances in real-time...");
+    const response = await axios.get("https://api.invidious.io/instances.json", { timeout: 6000 });
+    const instancesData = response.data || [];
+    
+    const healthy = instancesData
+      .filter(item => {
+        const info = item[1];
+        return info && info.type === "https" && info.uri && info.monitor && info.monitor.status === "1";
+      })
+      .map(item => item[1].uri);
+      
+    if (healthy.length > 0) {
+      console.log(`Found ${healthy.length} healthy dynamic Invidious instances.`);
+      return healthy.slice(0, 8); // Top 8 healthiest
+    }
+  } catch (err) {
+    console.warn("Failed to fetch dynamic Invidious instances, using fallbacks:", err.message);
+  }
+  
+  return [
     "https://invidious.nerdvpn.de",
     "https://yewtu.be",
     "https://invidious.privacydev.net",
@@ -259,7 +279,10 @@ async function downloadWithInvidious(youtubeId, targetPath) {
     "https://invidious.lunar.icu",
     "https://invidious.projectsegfau.lt"
   ];
+}
 
+async function downloadWithInvidious(youtubeId, targetPath) {
+  const instances = await getHealthyInvidiousInstances();
   let lastError = null;
 
   for (const instance of instances) {
@@ -318,10 +341,13 @@ async function downloadWithInvidious(youtubeId, targetPath) {
 
 async function downloadWithCobalt(videoUrl, targetPath) {
   const instances = [
-    "https://api.cobalt.tools",
-    "https://cobalt.hyper.us.kg",
-    "https://api.smooth.cafe",
-    "https://cobalt.sh.alby.im"
+    "https://cobalt.hyper.us.kg/",
+    "https://api.smooth.cafe/",
+    "https://cobalt.sh.alby.im/",
+    "https://cobalt.foxtrot.us.kg/",
+    "https://cobalt.perennial.us.kg/",
+    "https://cobalt.su/",
+    "https://api.cobalt.tools/"
   ];
 
   let lastError = null;
@@ -334,7 +360,7 @@ async function downloadWithCobalt(videoUrl, targetPath) {
         instance,
         {
           url: videoUrl,
-          isAudioOnly: true,
+          downloadMode: "audio",
           audioFormat: "mp3"
         },
         {
@@ -350,7 +376,7 @@ async function downloadWithCobalt(videoUrl, targetPath) {
       const downloadUrl = response.data?.url;
 
       if (!downloadUrl) {
-        throw new Error(`Cobalt returned status: ${status || "unknown"} without URL`);
+        throw new Error(`Cobalt returned status: ${status || "unknown"} without URL. Body: ${JSON.stringify(response.data)}`);
       }
 
       console.log(`Downloading audio stream from Cobalt: ${downloadUrl}`);
