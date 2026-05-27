@@ -243,6 +243,79 @@ function topUniqueMatches(matches) {
   return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
+function getYoutubeId(url) {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
+
+async function downloadWithInvidious(youtubeId, targetPath) {
+  const instances = [
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+    "https://invidious.privacydev.net",
+    "https://inv.vern.cc",
+    "https://invidious.lunar.icu",
+    "https://invidious.projectsegfau.lt"
+  ];
+
+  let lastError = null;
+
+  for (const instance of instances) {
+    try {
+      console.log(`Trying Invidious instance: ${instance} for video ID: ${youtubeId}`);
+      
+      const infoUrl = `${instance}/api/v1/videos/${youtubeId}`;
+      const response = await axios.get(infoUrl, { timeout: 10000 });
+      
+      const formats = response.data?.adaptiveFormats || [];
+      const audioFormats = formats.filter(f => f.type && f.type.startsWith("audio/"));
+      
+      if (audioFormats.length === 0) {
+        throw new Error("No audio stream found in Invidious response");
+      }
+
+      audioFormats.sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
+      const bestAudio = audioFormats[0];
+      
+      let streamUrl = bestAudio.url;
+      if (streamUrl.startsWith("/")) {
+        streamUrl = `${instance}${streamUrl}`;
+      }
+      
+      const urlObj = new URL(streamUrl);
+      urlObj.searchParams.set("local", "true");
+      streamUrl = urlObj.toString();
+
+      console.log(`Downloading audio stream from: ${instance} (Format: ${bestAudio.type})`);
+      
+      const writer = fs.createWriteStream(targetPath);
+      const streamResponse = await axios({
+        method: "get",
+        url: streamUrl,
+        responseType: "stream",
+        timeout: 30000
+      });
+
+      streamResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      console.log(`Successfully downloaded audio via Invidious proxy!`);
+      return bestAudio.type;
+    } catch (error) {
+      console.warn(`Invidious instance ${instance} failed:`, error.message);
+      lastError = error;
+    }
+  }
+
+  throw new Error(`Failed to download audio from all Invidious instances. Last error: ${lastError?.message}`);
+}
+
 router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
   let rawUrl = req.body.url || "";
@@ -260,17 +333,33 @@ router.post("/identify", async (req, res) => {
   const tempFiles = [];
 
   try {
-    console.log(`[${debugId}] Starting download for: ${url}`);
-    await youtubedl(url, {
-      f: "bestaudio",
-      output: sourceTemplate,
-      noWarnings: true,
-      noCallHome: true
-    });
-    
-    // Dynamically find the downloaded file in /tmp with the native extension
-    const files = fs.readdirSync(tempDir);
-    const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
+    const youtubeId = getYoutubeId(url);
+    let downloadedFile = null;
+
+    if (youtubeId) {
+      try {
+        console.log(`[${debugId}] YouTube link detected. Attempting Invidious download proxy for video: ${youtubeId}`);
+        const targetPath = path.join(tempDir, `tracktune_${debugId}_source.webm`);
+        await downloadWithInvidious(youtubeId, targetPath);
+        downloadedFile = `tracktune_${debugId}_source.webm`;
+      } catch (invidiousError) {
+        console.warn(`[${debugId}] Invidious download failed, falling back to standard yt-dlp...`, invidiousError.message);
+      }
+    }
+
+    if (!downloadedFile) {
+      console.log(`[${debugId}] Starting standard download for: ${url}`);
+      await youtubedl(url, {
+        f: "bestaudio",
+        output: sourceTemplate,
+        noWarnings: true,
+        noCallHome: true
+      });
+      
+      // Dynamically find the downloaded file in /tmp with the native extension
+      const files = fs.readdirSync(tempDir);
+      downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
+    }
     
     if (!downloadedFile) {
       throw new Error("Download failed - file not created");
