@@ -59,7 +59,7 @@ export default function HomeScreen() {
       sessionStorage.setItem('current_song', JSON.stringify(data));
       setLocation(`/result/${data.id}`);
     } catch (err) {
-      setError("We couldn't identify a song in this video. Please try another one.");
+      setError(err.message || "We couldn't identify a song in this video. Please try another one.");
       setLoading(false);
     }
   };
