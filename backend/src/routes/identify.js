@@ -316,6 +316,71 @@ async function downloadWithInvidious(youtubeId, targetPath) {
   throw new Error(`Failed to download audio from all Invidious instances. Last error: ${lastError?.message}`);
 }
 
+async function downloadWithCobalt(videoUrl, targetPath) {
+  const instances = [
+    "https://api.cobalt.tools",
+    "https://cobalt.hyper.us.kg",
+    "https://api.smooth.cafe",
+    "https://cobalt.sh.alby.im"
+  ];
+
+  let lastError = null;
+
+  for (const instance of instances) {
+    try {
+      console.log(`Trying Cobalt instance: ${instance} for URL: ${videoUrl}`);
+      
+      const response = await axios.post(
+        instance,
+        {
+          url: videoUrl,
+          isAudioOnly: true,
+          audioFormat: "mp3"
+        },
+        {
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          timeout: 15000
+        }
+      );
+
+      const status = response.data?.status;
+      const downloadUrl = response.data?.url;
+
+      if (!downloadUrl) {
+        throw new Error(`Cobalt returned status: ${status || "unknown"} without URL`);
+      }
+
+      console.log(`Downloading audio stream from Cobalt: ${downloadUrl}`);
+      
+      const writer = fs.createWriteStream(targetPath);
+      const streamResponse = await axios({
+        method: "get",
+        url: downloadUrl,
+        responseType: "stream",
+        timeout: 30000
+      });
+
+      streamResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      console.log(`Successfully downloaded audio via Cobalt proxy!`);
+      return "audio/mp3";
+    } catch (error) {
+      console.warn(`Cobalt instance ${instance} failed:`, error.message);
+      lastError = error;
+    }
+  }
+
+  throw new Error(`Failed to download audio from all Cobalt instances. Last error: ${lastError?.message}`);
+}
+
 router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
   let rawUrl = req.body.url || "";
@@ -336,9 +401,20 @@ router.post("/identify", async (req, res) => {
     const youtubeId = getYoutubeId(url);
     let downloadedFile = null;
 
-    if (youtubeId) {
+    // 1. Attempt Cobalt proxy first (handles YouTube, Instagram, TikTok, etc.)
+    try {
+      console.log(`[${debugId}] Attempting Cobalt download proxy for URL: ${url}`);
+      const targetPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
+      await downloadWithCobalt(url, targetPath);
+      downloadedFile = `tracktune_${debugId}_source.mp3`;
+    } catch (cobaltError) {
+      console.warn(`[${debugId}] Cobalt download failed, falling back to Invidious...`, cobaltError.message);
+    }
+
+    // 2. Attempt Invidious proxy fallback if it is a YouTube URL
+    if (!downloadedFile && youtubeId) {
       try {
-        console.log(`[${debugId}] YouTube link detected. Attempting Invidious download proxy for video: ${youtubeId}`);
+        console.log(`[${debugId}] YouTube link detected. Attempting Invidious fallback proxy for video: ${youtubeId}`);
         const targetPath = path.join(tempDir, `tracktune_${debugId}_source.webm`);
         await downloadWithInvidious(youtubeId, targetPath);
         downloadedFile = `tracktune_${debugId}_source.webm`;
@@ -347,8 +423,9 @@ router.post("/identify", async (req, res) => {
       }
     }
 
+    // 3. Fallback to standard yt-dlp download as a final backup
     if (!downloadedFile) {
-      console.log(`[${debugId}] Starting standard download for: ${url}`);
+      console.log(`[${debugId}] Falling back to standard local download for: ${url}`);
       await youtubedl(url, {
         f: "bestaudio",
         output: sourceTemplate,
