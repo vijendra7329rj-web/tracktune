@@ -75,3 +75,8 @@
 .animation-delay-4000 {
   animation-delay: 4s;
 }
+
+@keyframes visualizer {
+  0% { transform: scaleY(0.4); opacity: 0.5; }
+  100% { transform: scaleY(1.5); opacity: 1; }
+}

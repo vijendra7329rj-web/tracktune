@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
-import { identifySong } from '../api';
-import { Search, Share2, Video, Sparkles } from 'lucide-react';
+import { identifySong, identifySongFromAudio } from '../api';
+import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2 } from 'lucide-react';
 
 const searchMessages = [
   "Got it! Opening our ears... 🎧",
@@ -12,43 +12,58 @@ const searchMessages = [
   "Almost there! Pulling details... ✨"
 ];
 
+const micMessages = [
+  "Listening to your environment... 🎙️",
+  "Capturing audio samples... 🔊",
+  "Decoding soundwaves... 🌊",
+  "Identifying the melody... 🎵",
+  "Comparing patterns... 🧠",
+  "Got a match! Wrapping up... 🎁"
+];
+
 export default function HomeScreen() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [activeMessageIndex, setActiveMessageIndex] = useState(0);
   const [error, setError] = useState(null);
-  const [messageIndex, setMessageIndex] = useState(0);
   const [, setLocation] = useLocation();
 
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+
+  // Setup sharing parameters from native OS share sheet (Web Share Target)
   useEffect(() => {
-    // Check for shared URL from Web Share Target API
     const params = new URLSearchParams(window.location.search);
     const sharedUrl = params.get('shared_url') || params.get('url');
     const sharedText = params.get('text') || '';
     
-    // Extract URL if it's within text
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const matches = sharedText.match(urlRegex);
     const candidateUrl = sharedUrl || (matches ? matches[0] : null);
     
     if (candidateUrl) {
       setUrl(candidateUrl);
-      handleSearch(candidateUrl);
+      handleUrlSearch(candidateUrl);
     }
   }, []);
 
-  // Cycle messages sequentially during search
+  // Cycle status messages sequentially during active searches
   useEffect(() => {
-    if (!loading) {
-      setMessageIndex(0);
+    if (!loading && !isRecording) {
+      setActiveMessageIndex(0);
       return;
     }
     const interval = setInterval(() => {
-      setMessageIndex((prev) => (prev + 1) % searchMessages.length);
+      setActiveMessageIndex((prev) => (prev + 1) % searchMessages.length);
     }, 2000);
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, isRecording]);
 
-  const handleSearch = async (searchUrl) => {
+  // URL-based song identification
+  const handleUrlSearch = async (searchUrl) => {
     const targetUrl = searchUrl || url;
     if (!targetUrl) return;
     
@@ -64,32 +79,94 @@ export default function HomeScreen() {
     }
   };
 
+  // Microphone-based song identification (Shazam mode)
+  const startMicRecording = async () => {
+    setError(null);
+    audioChunksRef.current = [];
+    setRecordingSeconds(0);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        
+        // Stop all track inputs to release microphone
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Send to backend
+        setLoading(true);
+        setIsRecording(false);
+        try {
+          const data = await identifySongFromAudio(audioBlob);
+          sessionStorage.setItem('current_song', JSON.stringify(data));
+          setLocation(`/result/${data.id}`);
+        } catch (err) {
+          setError(err.message || "Could not identify the song. Make sure the music is clearly audible.");
+          setLoading(false);
+        }
+      };
+
+      // Start recording and count down 8 seconds
+      mediaRecorder.start();
+      setIsRecording(true);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => {
+          if (prev >= 8) {
+            clearInterval(recordingTimerRef.current);
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+              mediaRecorderRef.current.stop();
+            }
+            return 8;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+
+    } catch (err) {
+      setError("Please allow microphone access to identify music playing around you.");
+      console.error("Microphone access error:", err);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
   return (
     <div className="p-6 pt-12 min-h-screen flex flex-col items-center justify-between relative overflow-hidden">
-      {/* Dynamic Search Loading Overlay */}
+      
+      {/* 1. Loader Overlay for URL processing */}
       {loading && (
         <div className="absolute inset-0 bg-[#021110]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
           <div className="relative mb-12 flex items-center justify-center">
-            {/* Glowing outer scanning rings */}
             <div className="absolute w-44 h-44 rounded-full border border-[#13dfbf]/20 animate-ping duration-1000"></div>
             <div className="absolute w-36 h-36 rounded-full border border-[#13dfbf]/40 animate-pulse-ring"></div>
-            
-            {/* Main Glowing Logo Frame */}
             <div className="relative w-28 h-28 bg-[#042322] border-2 border-[#13dfbf] rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(19,223,191,0.4)] flex items-center justify-center p-1 animate-float">
               <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-2xl" />
             </div>
-            
-            {/* Liquid scanner line overlay */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#13dfbf] to-transparent w-full animate-bounce mt-14"></div>
           </div>
-
           <div className="text-center max-w-sm px-4">
             <h2 className="text-[#13dfbf] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
               <Sparkles size={18} className="animate-spin duration-3000" /> TrackTune Active
             </h2>
             <div className="h-10 flex items-center justify-center">
               <p className="text-white text-base font-semibold animate-pulse tracking-wide transition-all duration-300">
-                {searchMessages[messageIndex]}
+                {searchMessages[activeMessageIndex]}
               </p>
             </div>
             <div className="w-48 bg-white/5 h-1 rounded-full overflow-hidden mx-auto mt-6 border border-white/10">
@@ -99,60 +176,127 @@ export default function HomeScreen() {
         </div>
       )}
 
+      {/* 2. Loader Overlay for Microphone Recording */}
+      {isRecording && (
+        <div className="absolute inset-0 bg-[#021110]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
+          <div className="relative mb-12 flex items-center justify-center">
+            {/* Multi-layered custom sonic ripple wave animation */}
+            <div className="absolute w-56 h-56 rounded-full bg-[#13dfbf]/5 animate-ping duration-3000"></div>
+            <div className="absolute w-44 h-44 rounded-full bg-[#13dfbf]/10 animate-pulse duration-1000"></div>
+            <div className="absolute w-32 h-32 rounded-full border border-[#13dfbf]/30 animate-pulse-ring"></div>
+            
+            {/* Glowing active microphone core button */}
+            <button 
+              onClick={cancelRecording}
+              className="relative w-28 h-28 bg-[#13dfbf] rounded-full shadow-[0_0_60px_rgba(19,223,191,0.6)] flex flex-col items-center justify-center hover:scale-95 active:scale-90 transition-all duration-300 border border-white/10"
+            >
+              <Volume2 size={36} className="text-black animate-bounce mb-1" />
+              <span className="text-[10px] text-black font-black uppercase tracking-wider">{8 - recordingSeconds}s Left</span>
+            </button>
+          </div>
+          
+          <div className="text-center max-w-sm px-4">
+            <h2 className="text-[#13dfbf] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
+              Listening to Song...
+            </h2>
+            <div className="h-10 flex items-center justify-center">
+              <p className="text-white text-base font-semibold animate-pulse tracking-wide">
+                {micMessages[activeMessageIndex] || "Listening carefully..."}
+              </p>
+            </div>
+            
+            {/* Visualizer micro bars */}
+            <div className="flex items-center justify-center gap-1.5 mt-8 h-8">
+              <div className="w-1.5 h-4 bg-[#13dfbf] rounded-full animate-[visualizer_0.6s_ease-in-out_infinite_alternate]"></div>
+              <div className="w-1.5 h-7 bg-[#13dfbf] rounded-full animate-[visualizer_0.8s_ease-in-out_infinite_alternate_0.1s]"></div>
+              <div className="w-1.5 h-5 bg-[#13dfbf] rounded-full animate-[visualizer_0.5s_ease-in-out_infinite_alternate_0.2s]"></div>
+              <div className="w-1.5 h-8 bg-[#13dfbf] rounded-full animate-[visualizer_0.9s_ease-in-out_infinite_alternate_0.3s]"></div>
+              <div className="w-1.5 h-3 bg-[#13dfbf] rounded-full animate-[visualizer_0.7s_ease-in-out_infinite_alternate_0.4s]"></div>
+            </div>
+
+            <button 
+              onClick={cancelRecording}
+              className="mt-12 text-xs font-bold text-gray-400 hover:text-red-400 bg-white/5 border border-white/10 px-5 py-2.5 rounded-full transition-all uppercase tracking-widest"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Contents */}
-      <div className="w-full flex-1 flex flex-col items-center justify-center">
-        {/* Header with Custom Logo */}
-        <div className="mb-10 mt-6 flex flex-col items-center">
-          <div className="relative group mb-6">
-            <div className="absolute inset-0 bg-[#13dfbf]/20 rounded-3xl blur-2xl group-hover:blur-3xl transition-all duration-500"></div>
-            <div className="relative w-28 h-28 bg-[#042322]/80 border-2 border-[#13dfbf]/30 rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(19,223,191,0.15)] flex items-center justify-center p-1 transition-transform duration-500 hover:scale-105">
-              <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-2xl" />
+      <div className="w-full flex-1 flex flex-col items-center justify-between py-6">
+        
+        {/* Header and Branding */}
+        <div className="flex flex-col items-center mt-2">
+          <div className="relative group mb-4">
+            <div className="absolute inset-0 bg-[#13dfbf]/20 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
+            <div className="relative w-16 h-16 bg-[#042322]/80 border border-[#13dfbf]/30 rounded-2xl overflow-hidden shadow-md flex items-center justify-center p-0.5">
+              <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-xl" />
             </div>
           </div>
-          <h1 className="text-3xl font-black text-center mb-2 tracking-tight text-white">
-            Share to <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#13dfbf] to-[#00c0a9]">TrackTune</span>
+          <h1 className="text-2xl font-black text-center mb-1 text-white tracking-tight">
+            Track<span className="text-[#13dfbf]">Tune</span>
           </h1>
-          <p className="text-gray-400 text-center text-sm px-4">
-            Open Instagram, YouTube, or TikTok • Tap Share • Choose TrackTune
+          <p className="text-gray-400 text-center text-xs tracking-wide">
+            Your Ultimate Music Discovery Suite
           </p>
         </div>
 
-        {/* Input Card */}
-        <div className="w-full glass-card p-6 mb-8 relative z-20">
-          <div className="flex items-center gap-3 mb-4 text-xs font-bold text-[#13dfbf] uppercase tracking-widest">
-            <Share2 size={14} /> Direct Share Feature
-          </div>
-          <div className="bg-[#031d1c]/40 rounded-xl p-4 text-xs text-gray-400 mb-6 border border-[#13dfbf]/10 leading-relaxed">
-            The best way to use TrackTune is directly from your social apps. Just tap the share button inside Instagram or YouTube and pick our app.
+        {/* Dynamic Interactive Central Listening Hub (Shazam Mode) */}
+        <div className="flex flex-col items-center justify-center my-6 py-4 relative">
+          <div className="absolute w-60 h-60 rounded-full border border-[#13dfbf]/5 animate-pulse duration-3000"></div>
+          
+          <button 
+            onClick={startMicRecording}
+            className="relative w-36 h-36 bg-gradient-to-tr from-[#00c0a9] to-[#13dfbf] rounded-full shadow-[0_0_50px_rgba(19,223,191,0.25)] flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 group border-4 border-[#021110]"
+          >
+            {/* Outer dynamic glowing ring */}
+            <span className="absolute inset-0 rounded-full border-2 border-white/20 scale-100 group-hover:scale-110 transition-transform duration-500"></span>
+            
+            <Mic size={42} className="text-black mb-1 group-hover:rotate-12 transition-transform duration-300" />
+            <span className="text-xs font-black text-black uppercase tracking-wider">Tap to Listen</span>
+          </button>
+          
+          <p className="text-[#13dfbf] text-xs font-bold mt-6 flex items-center gap-1.5 bg-[#13dfbf]/5 px-4 py-1.5 rounded-full border border-[#13dfbf]/10">
+            <Volume2 size={12} className="animate-pulse" /> Identify music playing nearby
+          </p>
+        </div>
+
+        {/* Input Card (Social Share / Manual Paste) */}
+        <div className="w-full glass-card p-5 relative z-20">
+          <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#13dfbf] uppercase tracking-widest">
+            <Share2 size={14} /> Identify from Social Media
           </div>
           
           <div className="relative">
             <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-              <Video size={18} className="text-gray-500" />
+              <Video size={16} className="text-gray-500" />
             </div>
             <input
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="Or paste a video link manually..."
-              className="w-full bg-black/30 border border-[#13dfbf]/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-[#13dfbf] focus:ring-2 focus:ring-[#13dfbf]/10 transition-all text-sm"
+              placeholder="Paste Instagram, YouTube, or TikTok link..."
+              className="w-full bg-black/30 border border-[#13dfbf]/20 rounded-xl py-3.5 pl-12 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-[#13dfbf] focus:ring-1 focus:ring-[#13dfbf]/20 transition-all text-xs"
             />
           </div>
           
           <button
-            onClick={() => handleSearch()}
+            onClick={() => handleUrlSearch()}
             disabled={!url || loading}
-            className="w-full mt-4 bg-gradient-to-r from-[#00c0a9] to-[#13dfbf] hover:from-[#13dfbf] hover:to-[#00c0a9] text-black font-extrabold py-4 rounded-2xl shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm tracking-wide"
+            className="w-full mt-3 bg-[#042322] border border-[#13dfbf]/30 hover:bg-[#13dfbf]/10 text-white font-extrabold py-3.5 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs tracking-wider uppercase"
           >
-            <Search size={18} /> Identify Song
+            <Search size={14} /> Search Video Link
           </button>
           
           {error && (
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs text-center">
+            <div className="mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] text-center font-medium leading-relaxed">
               {error}
             </div>
           )}
         </div>
+
       </div>
     </div>
   );

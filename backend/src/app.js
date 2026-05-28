@@ -11,6 +11,7 @@ import { logger } from "./logger.js";
 // Import route modules
 import healthRouter from "./routes/health.js";
 import identifyRouter from "./routes/identify.js";
+import identifyAudioRouter from "./routes/identify-audio.js";
 import historyRouter from "./routes/history.js";
 import trendingRouter from "./routes/trending.js";
 import songsRouter from "./routes/songs.js";
@@ -40,12 +41,14 @@ app.use(
 );
 
 // ── Body parsing ──────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use("/api/identify-audio", express.raw({ type: "*/*", limit: "20mb" }));
 
 // ── Mount all API routes under /api ───────────────────
 app.use("/api", healthRouter);
 app.use("/api", identifyRouter);
+app.use("/api", identifyAudioRouter);
 app.use("/api", historyRouter);
 app.use("/api", trendingRouter);
 app.use("/api", songsRouter);
