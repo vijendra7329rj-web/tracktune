@@ -255,27 +255,95 @@ function topUniqueMatches(matches) {
 }
 
 // ─────────────────────────────────────────────
-// Core Download Function - Uses yt-dlp with cookies
-// This is the most reliable method to bypass YouTube bot detection
+// Core Download Function - Uses a Failover Chain of Public Download Mirrors
 // ─────────────────────────────────────────────
+
+// List of public Cobalt instances that process audio conversions for us
+const COBALT_MIRRORS = [
+  "https://co.wuk.sh/api/json",
+  "https://api.cobalt.tools",
+  "https://cobalt.shizuku.io/api/json",
+  "https://cobalt.xyz/api/json"
+];
+
+async function downloadViaMirror(url, targetPath, debugId) {
+  let lastError = null;
+
+  for (const mirror of COBALT_MIRRORS) {
+    try {
+      console.log(`[${debugId}] Attempting mirror download from: ${mirror}`);
+      const response = await axios.post(mirror, {
+        url: url,
+        codec: "mp3",
+        downloadMode: "audio",
+        audioFormat: "mp3"
+      }, {
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        timeout: 15000
+      });
+
+      const downloadUrl = response.data?.url;
+      if (!downloadUrl) {
+        throw new Error(`Mirror ${mirror} did not return direct download link.`);
+      }
+
+      console.log(`[${debugId}] Mirror succeeded. Downloading audio payload from CDN...`);
+      
+      // Download actual audio file from CDN link returned by the mirror
+      const fileResponse = await axios({
+        method: "get",
+        url: downloadUrl,
+        responseType: "stream",
+        timeout: 25000
+      });
+
+      const writer = fs.createWriteStream(targetPath);
+      fileResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      console.log(`[${debugId}] File saved successfully. Size: ${fs.statSync(targetPath).size} bytes`);
+      return true;
+    } catch (err) {
+      console.warn(`[${debugId}] Mirror ${mirror} failed:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw new Error(`All download mirrors failed. Last error: ${lastError?.message}`);
+}
 
 async function downloadAudio(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
-  
-  // Build yt-dlp options
+  const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
+
+  // 1. Try public mirrors first (Failover chain) - Bypasses bot blocks completely!
+  try {
+    await downloadViaMirror(url, mirrorPath, debugId);
+    return mirrorPath;
+  } catch (mirrorError) {
+    console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
+  }
+
+  // 2. Local yt-dlp fallback (uses Android bypass + Cookies)
   const ytdlpOptions = {
     f: "bestaudio",
     output: sourceTemplate,
     noWarnings: true,
     noCallHome: true,
-    // Use a real browser User-Agent to avoid basic bot detection
     addHeader: [
       "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
       "Accept-Language:en-US,en;q=0.9"
     ]
   };
 
-  // If user has provided YouTube cookies as env var, write to temp file and use them
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
   let cookieFilePath = null;
   
@@ -289,28 +357,25 @@ async function downloadAudio(url, sourceTemplate, debugId) {
       console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
     }
   } else {
-    // Use Android client to bypass bot detection (works without cookies on most videos)
     ytdlpOptions.extractorArgs = "youtube:player_client=android,web";
     console.log(`[${debugId}] No cookies found, using Android client bypass`);
   }
 
   try {
-    console.log(`[${debugId}] Downloading audio for: ${url}`);
+    console.log(`[${debugId}] Downloading audio locally for: ${url}`);
     await youtubedl(url, ytdlpOptions);
 
-    // Find the downloaded file (yt-dlp uses the native format extension)
     const files = fs.readdirSync(tempDir);
     const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
     
     if (!downloadedFile) {
-      throw new Error("Download failed - file not created");
+      throw new Error("Download failed - local file not created");
     }
     
     const sourcePath = path.join(tempDir, downloadedFile);
-    console.log(`[${debugId}] Download success. File: ${downloadedFile}, Size: ${fs.statSync(sourcePath).size} bytes`);
+    console.log(`[${debugId}] Local yt-dlp success. Size: ${fs.statSync(sourcePath).size} bytes`);
     return sourcePath;
   } finally {
-    // Always clean up cookie file
     if (cookieFilePath && fs.existsSync(cookieFilePath)) {
       try { fs.unlinkSync(cookieFilePath); } catch (e) {}
     }
@@ -337,7 +402,6 @@ router.post("/identify", async (req, res) => {
   const tempFiles = [];
 
   try {
-    // Download the audio using yt-dlp with bypass strategies
     const sourcePath = await downloadAudio(url, sourceTemplate, debugId);
     tempFiles.push(sourcePath);
 
