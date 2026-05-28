@@ -20,6 +20,8 @@ const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
+console.log("Diagnostic Env Keys:", Object.keys(process.env).filter(k => k.toLowerCase().includes("api") || k.toLowerCase().includes("acr") || k.toLowerCase().includes("database") || k.toLowerCase().includes("youtube")));
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
