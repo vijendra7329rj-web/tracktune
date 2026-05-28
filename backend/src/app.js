@@ -71,7 +71,7 @@ if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
 
   // SPA catch-all: any non-API route serves index.html
-  app.get("/(.*)", (req, res) => {
+  app.get("/:any*", (req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
 } else {
