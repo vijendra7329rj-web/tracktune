@@ -360,13 +360,20 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
     throw new Error("RapidAPI response did not contain a valid download URL.");
   }
 
-  console.log(`[${debugId}] RapidAPI success! Downloading direct file stream...`);
+  console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
 
   const fileResponse = await axios({
     method: "get",
     url: downloadUrl,
     responseType: "stream",
-    timeout: 25000
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
   });
 
   const writer = fs.createWriteStream(targetPath);
@@ -408,13 +415,20 @@ async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
     throw new Error("Backup RapidAPI response did not contain a valid media download URL.");
   }
 
-  console.log(`[${debugId}] Backup RapidAPI success! Downloading direct file stream...`);
+  console.log(`[${debugId}] Backup RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
 
   const fileResponse = await axios({
     method: "get",
     url: downloadUrl,
     responseType: "stream",
-    timeout: 25000
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
   });
 
   const writer = fs.createWriteStream(targetPath);
