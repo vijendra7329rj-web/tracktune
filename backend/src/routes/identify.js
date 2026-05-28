@@ -20,6 +20,10 @@ const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
 function extractUrl(text) {
   if (!text) return null;
   const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -46,6 +50,13 @@ function getSpotifyUrl(spotifyId) {
 
 function getYoutubeUrl(youtubeId) {
   return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
+}
+
+function getYoutubeId(url) {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
 }
 
 async function runTool(command, args, timeout = 30000) {
@@ -243,268 +254,91 @@ function topUniqueMatches(matches) {
   return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
-function getYoutubeId(url) {
-  if (!url) return null;
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
-}
+// ─────────────────────────────────────────────
+// Core Download Function - Uses yt-dlp with cookies
+// This is the most reliable method to bypass YouTube bot detection
+// ─────────────────────────────────────────────
 
-const BROWSER_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "application/json",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Origin": "https://cobalt.tools",
-  "Referer": "https://cobalt.tools/"
-};
-
-async function getHealthyInvidiousInstances() {
-  try {
-    console.log("Fetching dynamic Invidious instances in real-time...");
-    const response = await axios.get("https://api.invidious.io/instances.json", { 
-      headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
-      timeout: 6000 
-    });
-    const instancesData = response.data || [];
-    
-    const healthy = instancesData
-      .filter(item => {
-        const info = item[1];
-        return info && info.type === "https" && info.uri && info.monitor && info.monitor.status === "1";
-      })
-      .map(item => item[1].uri);
-      
-    if (healthy.length > 0) {
-      console.log(`Found ${healthy.length} healthy dynamic Invidious instances.`);
-      return healthy.slice(0, 8); // Top 8 healthiest
-    }
-  } catch (err) {
-    console.warn("Failed to fetch dynamic Invidious instances, using fallbacks:", err.message);
-  }
-  
-  return [
-    "https://invidious.nerdvpn.de",
-    "https://yewtu.be",
-    "https://invidious.privacydev.net",
-    "https://inv.vern.cc",
-    "https://invidious.lunar.icu",
-    "https://invidious.projectsegfau.lt"
-  ];
-}
-
-async function downloadWithInvidious(youtubeId, targetPath) {
-  const instances = await getHealthyInvidiousInstances();
-  let lastError = null;
-
-  for (const instance of instances) {
-    try {
-      console.log(`Trying Invidious instance: ${instance} for video ID: ${youtubeId}`);
-      
-      const infoUrl = `${instance}/api/v1/videos/${youtubeId}`;
-      const response = await axios.get(infoUrl, { 
-        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
-        timeout: 10000 
-      });
-      
-      const formats = response.data?.adaptiveFormats || [];
-      const audioFormats = formats.filter(f => f.type && f.type.startsWith("audio/"));
-      
-      if (audioFormats.length === 0) {
-        throw new Error("No audio stream found in Invidious response");
-      }
-
-      audioFormats.sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
-      const bestAudio = audioFormats[0];
-      
-      let streamUrl = bestAudio.url;
-      if (streamUrl.startsWith("/")) {
-        streamUrl = `${instance}${streamUrl}`;
-      }
-      
-      const urlObj = new URL(streamUrl);
-      urlObj.searchParams.set("local", "true");
-      streamUrl = urlObj.toString();
-
-      console.log(`Downloading audio stream from: ${instance} (Format: ${bestAudio.type})`);
-      
-      const writer = fs.createWriteStream(targetPath);
-      const streamResponse = await axios({
-        method: "get",
-        url: streamUrl,
-        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
-        responseType: "stream",
-        timeout: 30000
-      });
-
-      streamResponse.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
-
-      console.log(`Successfully downloaded audio via Invidious proxy!`);
-      return bestAudio.type;
-    } catch (error) {
-      console.warn(`Invidious instance ${instance} failed:`, error.message);
-      lastError = error;
-    }
-  }
-
-  throw new Error(`Failed to download audio from all Invidious instances. Last error: ${lastError?.message}`);
-}
-
-async function downloadWithCobalt(videoUrl, targetPath) {
-  const instances = [
-    "https://cobalt.hyper.us.kg/",
-    "https://api.smooth.cafe/",
-    "https://cobalt.sh.alby.im/",
-    "https://cobalt.foxtrot.us.kg/",
-    "https://cobalt.perennial.us.kg/",
-    "https://cobalt.su/",
-    "https://api.cobalt.tools/"
-  ];
-
-  let lastError = null;
-
-  for (const instance of instances) {
-    try {
-      console.log(`Trying Cobalt instance: ${instance} for URL: ${videoUrl}`);
-      
-      // Try posting to root / first
-      let response;
-      try {
-        response = await axios.post(
-          instance,
-          {
-            url: videoUrl,
-            downloadMode: "audio",
-            audioFormat: "mp3"
-          },
-          {
-            headers: BROWSER_HEADERS,
-            timeout: 15000
-          }
-        );
-      } catch (postErr) {
-        // If root / fails with 404/405, attempt /api/json as fallback for legacy instances
-        if (postErr.response && (postErr.response.status === 404 || postErr.response.status === 405)) {
-          console.log(`Root endpoint failed, trying legacy /api/json on ${instance}`);
-          response = await axios.post(
-            `${instance.replace(/\/$/, "")}/api/json`,
-            {
-              url: videoUrl,
-              downloadMode: "audio",
-              audioFormat: "mp3"
-            },
-            {
-              headers: BROWSER_HEADERS,
-              timeout: 15000
-            }
-          );
-        } else {
-          throw postErr;
-        }
-      }
-
-      const status = response.data?.status;
-      const downloadUrl = response.data?.url;
-
-      if (!downloadUrl) {
-        throw new Error(`Cobalt returned status: ${status || "unknown"} without URL. Body: ${JSON.stringify(response.data)}`);
-      }
-
-      console.log(`Downloading audio stream from Cobalt: ${downloadUrl}`);
-      
-      const writer = fs.createWriteStream(targetPath);
-      const streamResponse = await axios({
-        method: "get",
-        url: downloadUrl,
-        headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },
-        responseType: "stream",
-        timeout: 30000
-      });
-
-      streamResponse.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
-
-      console.log(`Successfully downloaded audio via Cobalt proxy!`);
-      return "audio/mp3";
-    } catch (error) {
-      console.warn(`Cobalt instance ${instance} failed:`, error.message);
-      lastError = error;
-    }
-  }
-
-  throw new Error(`Failed to download audio from all Cobalt instances. Last error: ${lastError?.message}`);
-}
-
-router.post("/identify", async (req, res) => {
-  const debugId = crypto.randomUUID();
-  let rawUrl = req.body.url || "";
-  
-  // Extract actual URL if it contains extra text from a native share
-  const url = extractUrl(rawUrl);
-  if (!url) return res.status(400).json({ error: "Please share or paste a valid public video URL.", debugId });
-
+async function downloadAudio(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
-  // Make sure temp directory exists
-  if (!fs.existsSync(tempDir)) {
-     fs.mkdirSync(tempDir, { recursive: true });
+  
+  // Build yt-dlp options
+  const ytdlpOptions = {
+    f: "bestaudio",
+    output: sourceTemplate,
+    noWarnings: true,
+    noCallHome: true,
+    // Use a real browser User-Agent to avoid basic bot detection
+    addHeader: [
+      "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+      "Accept-Language:en-US,en;q=0.9"
+    ]
+  };
+
+  // If user has provided YouTube cookies as env var, write to temp file and use them
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  let cookieFilePath = null;
+  
+  if (cookiesEnv) {
+    cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
+    try {
+      fs.writeFileSync(cookieFilePath, cookiesEnv, "utf8");
+      ytdlpOptions.cookies = cookieFilePath;
+      console.log(`[${debugId}] Using YouTube cookies from environment`);
+    } catch (e) {
+      console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
+    }
+  } else {
+    // Use Android client to bypass bot detection (works without cookies on most videos)
+    ytdlpOptions.extractorArgs = "youtube:player_client=android,web";
+    console.log(`[${debugId}] No cookies found, using Android client bypass`);
   }
-  const sourceTemplate = path.join(tempDir, `tracktune_${debugId}_source.%(ext)s`);
-  const tempFiles = [];
 
   try {
-    const youtubeId = getYoutubeId(url);
-    let downloadedFile = null;
+    console.log(`[${debugId}] Downloading audio for: ${url}`);
+    await youtubedl(url, ytdlpOptions);
 
-    // 1. Attempt Cobalt proxy first (handles YouTube, Instagram, TikTok, etc.)
-    try {
-      console.log(`[${debugId}] Attempting Cobalt download proxy for URL: ${url}`);
-      const targetPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
-      await downloadWithCobalt(url, targetPath);
-      downloadedFile = `tracktune_${debugId}_source.mp3`;
-    } catch (cobaltError) {
-      console.warn(`[${debugId}] Cobalt download failed, falling back to Invidious...`, cobaltError.message);
-    }
-
-    // 2. Attempt Invidious proxy fallback if it is a YouTube URL
-    if (!downloadedFile && youtubeId) {
-      try {
-        console.log(`[${debugId}] YouTube link detected. Attempting Invidious fallback proxy for video: ${youtubeId}`);
-        const targetPath = path.join(tempDir, `tracktune_${debugId}_source.webm`);
-        await downloadWithInvidious(youtubeId, targetPath);
-        downloadedFile = `tracktune_${debugId}_source.webm`;
-      } catch (invidiousError) {
-        console.warn(`[${debugId}] Invidious download failed, falling back to standard yt-dlp...`, invidiousError.message);
-      }
-    }
-
-    // 3. Fallback to standard yt-dlp download as a final backup
-    if (!downloadedFile) {
-      console.log(`[${debugId}] Falling back to standard local download for: ${url}`);
-      await youtubedl(url, {
-        f: "bestaudio",
-        output: sourceTemplate,
-        noWarnings: true,
-        noCallHome: true
-      });
-      
-      // Dynamically find the downloaded file in /tmp with the native extension
-      const files = fs.readdirSync(tempDir);
-      downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
-    }
+    // Find the downloaded file (yt-dlp uses the native format extension)
+    const files = fs.readdirSync(tempDir);
+    const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
     
     if (!downloadedFile) {
       throw new Error("Download failed - file not created");
     }
     
     const sourcePath = path.join(tempDir, downloadedFile);
+    console.log(`[${debugId}] Download success. File: ${downloadedFile}, Size: ${fs.statSync(sourcePath).size} bytes`);
+    return sourcePath;
+  } finally {
+    // Always clean up cookie file
+    if (cookieFilePath && fs.existsSync(cookieFilePath)) {
+      try { fs.unlinkSync(cookieFilePath); } catch (e) {}
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Main Route
+// ─────────────────────────────────────────────
+
+router.post("/identify", async (req, res) => {
+  const debugId = crypto.randomUUID();
+  let rawUrl = req.body.url || "";
+  
+  const url = extractUrl(rawUrl);
+  if (!url) return res.status(400).json({ error: "Please share or paste a valid public video URL.", debugId });
+
+  const tempDir = "/tmp";
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  
+  const sourceTemplate = path.join(tempDir, `tracktune_${debugId}_source.%(ext)s`);
+  const tempFiles = [];
+
+  try {
+    // Download the audio using yt-dlp with bypass strategies
+    const sourcePath = await downloadAudio(url, sourceTemplate, debugId);
     tempFiles.push(sourcePath);
 
     const fileSize = fs.statSync(sourcePath).size;
@@ -537,7 +371,6 @@ router.post("/identify", async (req, res) => {
       });
     }
 
-    // Deduplicate songs by title and artist
     let song = null;
     const existingSongs = await db.select().from(songsTable)
       .where(and(eq(songsTable.title, bestMatch.title), eq(songsTable.artist, bestMatch.artist)))
@@ -568,8 +401,12 @@ router.post("/identify", async (req, res) => {
       recognitionMethod: bestMatch.recognitionMethod, possibleMatches, debugId,
     });
   } catch (error) {
-    console.error(`[${debugId}] Identification Error:`, error);
-    const message = error?.code === "ENOENT" ? "Server missing FFmpeg/yt-dlp." : "TrackTune could not process this video. Try another link.";
+    console.error(`[${debugId}] Identification Error:`, error.message);
+    let message = "TrackTune could not process this video. Try another link.";
+    if (error?.code === "ENOENT") message = "Server missing FFmpeg/yt-dlp.";
+    if (error?.message?.includes("Sign in") || error?.message?.includes("bot")) {
+      message = "YouTube is blocking this request. Please add YOUTUBE_COOKIES to Render environment variables.";
+    }
     return res.status(500).json({ error: message, confidence: 0, matchedSample: "", recognitionMethod: "acrcloud", possibleMatches: [], debugId });
   } finally {
     for (const file of tempFiles) {
