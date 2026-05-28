@@ -321,7 +321,7 @@ async function downloadViaMirror(url, targetPath, debugId) {
 }
 
 async function downloadViaRapidAPI(url, targetPath, debugId) {
-  const apiKey = process.env.RAPIDAPI_KEY;
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!apiKey) {
     throw new Error("No RAPIDAPI_KEY found in environment variables.");
   }
@@ -371,7 +371,7 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
 }
 
 async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
-  const apiKey = process.env.RAPIDAPI_KEY;
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!apiKey) {
     throw new Error("No RAPIDAPI_KEY found in environment variables.");
   }
