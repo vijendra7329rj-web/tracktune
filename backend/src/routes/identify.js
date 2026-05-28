@@ -20,7 +20,16 @@ const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
-console.log("Diagnostic Env Keys:", Object.keys(process.env).filter(k => k.toLowerCase().includes("api") || k.toLowerCase().includes("acr") || k.toLowerCase().includes("database") || k.toLowerCase().includes("youtube")));
+// ── STARTUP DIAGNOSTICS (will print when container boots) ──
+console.log("\n=== TRACKTUNE STARTUP DIAGNOSTICS ===");
+console.log("RAPIDAPI_KEY exists:", "RAPIDAPI_KEY" in process.env);
+console.log("RAPIDAPI_KEY typeof:", typeof process.env.RAPIDAPI_KEY);
+console.log("RAPIDAPI_KEY length:", process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.length : "(undefined)");
+console.log("RAPIDAPI_KEY truthy:", !!process.env.RAPIDAPI_KEY);
+console.log("RAPIDAPI_KEY first 4 chars:", process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.substring(0, 4) + "..." : "(none)");
+console.log("All env keys containing RAPID:", Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID")));
+console.log("All env keys containing API:", Object.keys(process.env).filter(k => k.toUpperCase().includes("API")));
+console.log("=== END DIAGNOSTICS ===\n");
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -424,8 +433,28 @@ async function downloadAudio(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
 
+  // ── Bulletproof RapidAPI key detection ──
+  // Search ALL env vars for anything containing "RAPID" (handles typos, whitespace in key names)
+  let rapidApiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!rapidApiKey) {
+    const allRapidKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID"));
+    console.log(`[${debugId}] RAPIDAPI_KEY not found directly. Scanning env... found keys:`, allRapidKeys);
+    for (const altKey of allRapidKeys) {
+      const val = process.env[altKey]?.trim();
+      if (val && val.length > 10) {
+        console.log(`[${debugId}] Using alternate key name: "${altKey}" (length=${val.length})`);
+        rapidApiKey = val;
+        break;
+      }
+    }
+  }
+
+  console.log(`[${debugId}] RapidAPI key available: ${!!rapidApiKey}, length: ${rapidApiKey ? rapidApiKey.length : 0}`);
+
   // 1. First Priority: Try Premium RapidAPI Downloader A
-  if (process.env.RAPIDAPI_KEY) {
+  if (rapidApiKey) {
+    // Temporarily set process.env so the download functions can read it
+    process.env.RAPIDAPI_KEY = rapidApiKey;
     try {
       await downloadViaRapidAPI(url, mirrorPath, debugId);
       return mirrorPath;
@@ -440,6 +469,8 @@ async function downloadAudio(url, sourceTemplate, debugId) {
         console.warn(`[${debugId}] Premium RapidAPI Downloader B failed, trying fallback mirrors...`, backupError.message);
       }
     }
+  } else {
+    console.error(`[${debugId}] *** CRITICAL: No RapidAPI key found in ANY environment variable! Skipping premium downloaders. ***`);
   }
 
   // 2. Second Priority: Try public mirrors (Failover chain)
