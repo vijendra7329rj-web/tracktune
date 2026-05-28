@@ -320,11 +320,69 @@ async function downloadViaMirror(url, targetPath, debugId) {
   throw new Error(`All download mirrors failed. Last error: ${lastError?.message}`);
 }
 
+async function downloadViaRapidAPI(url, targetPath, debugId) {
+  const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+  }
+
+  console.log(`[${debugId}] Attempting download via RapidAPI...`);
+  
+  // Call the highly stable Social Media Video Downloader on RapidAPI
+  const response = await axios.get("https://social-media-video-downloader.p.rapidapi.com/smvd/get/all", {
+    params: { url: url },
+    headers: {
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "social-media-video-downloader.p.rapidapi.com"
+    },
+    timeout: 15000
+  });
+
+  // Find direct MP4/MP3 download link
+  const links = response.data?.links || [];
+  const audioLinkObj = links.find(l => l.quality === "audio" || l.link?.includes(".mp3") || l.link?.includes("audio") || l.link?.includes("music")) || links[0];
+  const downloadUrl = audioLinkObj?.link;
+
+  if (!downloadUrl) {
+    throw new Error("RapidAPI response did not contain a valid media download URL.");
+  }
+
+  console.log(`[${debugId}] RapidAPI success! Downloading direct file stream...`);
+
+  const fileResponse = await axios({
+    method: "get",
+    url: downloadUrl,
+    responseType: "stream",
+    timeout: 25000
+  });
+
+  const writer = fs.createWriteStream(targetPath);
+  fileResponse.data.pipe(writer);
+
+  await new Promise((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  console.log(`[${debugId}] RapidAPI file saved. Size: ${fs.statSync(targetPath).size} bytes`);
+  return true;
+}
+
 async function downloadAudio(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
 
-  // 1. Try public mirrors first (Failover chain) - Bypasses bot blocks completely!
+  // 1. First Priority: Try Premium RapidAPI if key is provided
+  if (process.env.RAPIDAPI_KEY) {
+    try {
+      await downloadViaRapidAPI(url, mirrorPath, debugId);
+      return mirrorPath;
+    } catch (rapidError) {
+      console.warn(`[${debugId}] Premium RapidAPI failed, trying fallback mirrors...`, rapidError.message);
+    }
+  }
+
+  // 2. Second Priority: Try public mirrors (Failover chain)
   try {
     await downloadViaMirror(url, mirrorPath, debugId);
     return mirrorPath;
