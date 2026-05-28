@@ -508,6 +508,11 @@ router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
   let rawUrl = req.body.url || "";
   
+  console.log(`[${debugId}] DIAGNOSTIC - RAPIDAPI_KEY exists:`, !!process.env.RAPIDAPI_KEY);
+  if (process.env.RAPIDAPI_KEY) {
+    console.log(`[${debugId}] DIAGNOSTIC - RAPIDAPI_KEY length:`, process.env.RAPIDAPI_KEY.length);
+  }
+  
   const url = extractUrl(rawUrl);
   if (!url) return res.status(400).json({ error: "Please share or paste a valid public video URL.", debugId });
 
