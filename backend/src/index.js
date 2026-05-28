@@ -1,9 +1,14 @@
-// ─────────────────────────────────────────────────────────
-// src/index.js — Entry point for the TrackTune API server
-// Reads PORT from environment and starts listening.
-// ─────────────────────────────────────────────────────────
+import { execSync } from "child_process";
 import app from "./app.js";
 import { logger } from "./logger.js";
+
+// Run database migrations programmatically on startup
+try {
+  console.log("🔄 Programmatically running database migrations...");
+  execSync("node src/migrate.js", { stdio: "inherit" });
+} catch (err) {
+  console.error("❌ Migration failed on startup:", err.message);
+}
 
 const PORT = Number(process.env.PORT) || 10000;
 
