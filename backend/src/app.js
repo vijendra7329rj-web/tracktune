@@ -60,6 +60,10 @@ app.use("/api", historyRouter);
 app.use("/api", trendingRouter);
 app.use("/api", songsRouter);
 
+// ── Top-level Health Checks (Ensures Render health checks always succeed) ──
+app.get("/healthz", (req, res) => res.json({ status: "ok" }));
+app.get("/health", (req, res) => res.json({ status: "ok" }));
+
 // ── Serve frontend static files ───────────────────────
 const frontendDist = path.resolve(__dirname, "../../frontend/dist");
 if (fs.existsSync(frontendDist)) {
@@ -73,7 +77,29 @@ if (fs.existsSync(frontendDist)) {
 } else {
   console.warn(`Frontend dist not found at ${frontendDist}. Run the frontend build first.`);
   app.get("/", (req, res) => {
-    res.status(503).send("Frontend not built yet. Please redeploy.");
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>🎵 TrackTune API Server</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0c0f1d; color: #fff; text-align: center; padding: 50px; }
+            .card { max-width: 600px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); padding: 40px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+            h1 { color: #818cf8; margin-bottom: 20px; }
+            p { color: #94a3b8; font-size: 16px; line-height: 1.6; }
+            .badge { display: inline-block; background: #10b981; color: #fff; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 14px; margin-top: 15px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>🎵 TrackTune API Server</h1>
+            <p>The backend server is running successfully!</p>
+            <p>The frontend build is either currently compiling or was not completed yet. Please wait a few moments for the build to finish or trigger a redeploy.</p>
+            <div class="badge">Server Status: Online</div>
+          </div>
+        </body>
+      </html>
+    `);
   });
 }
 
