@@ -65,7 +65,7 @@ app.get("/healthz", (req, res) => res.json({ status: "ok" }));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 // ── Serve frontend static files ───────────────────────
-const frontendDist = path.resolve(__dirname, "../../frontend/dist");
+const frontendDist = path.resolve(__dirname, "../dist");
 if (fs.existsSync(frontendDist)) {
   console.log(`Serving frontend from: ${frontendDist}`);
   app.use(express.static(frontendDist));
