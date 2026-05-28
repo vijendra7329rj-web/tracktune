@@ -326,25 +326,27 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
     throw new Error("No RAPIDAPI_KEY found in environment variables.");
   }
 
-  console.log(`[${debugId}] Attempting download via RapidAPI...`);
+  console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
   
-  // Call the highly stable Social Media Video Downloader on RapidAPI
-  const response = await axios.get("https://social-media-video-downloader.p.rapidapi.com/smvd/get/all", {
-    params: { url: url },
+  // Call the highly stable Social Download All In One on RapidAPI
+  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
+    url: url
+  }, {
     headers: {
+      "Content-Type": "application/json",
       "x-rapidapi-key": apiKey,
-      "x-rapidapi-host": "social-media-video-downloader.p.rapidapi.com"
+      "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com"
     },
     timeout: 15000
   });
 
-  // Find direct MP4/MP3 download link
-  const links = response.data?.links || [];
-  const audioLinkObj = links.find(l => l.quality === "audio" || l.link?.includes(".mp3") || l.link?.includes("audio") || l.link?.includes("music")) || links[0];
-  const downloadUrl = audioLinkObj?.link;
+  // Find direct MP4/MP3 download link in the standardized medias array
+  const medias = response.data?.medias || [];
+  const audioMedia = medias.find(m => m.type === "audio" || m.extension === "mp3" || m.quality === "audio") || medias.find(m => m.extension === "mp4") || medias[0];
+  const downloadUrl = audioMedia?.url;
 
   if (!downloadUrl) {
-    throw new Error("RapidAPI response did not contain a valid media download URL.");
+    throw new Error("RapidAPI response did not contain a valid download URL.");
   }
 
   console.log(`[${debugId}] RapidAPI success! Downloading direct file stream...`);
