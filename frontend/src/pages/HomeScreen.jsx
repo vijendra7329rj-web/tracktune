@@ -297,6 +297,16 @@ export default function HomeScreen() {
           )}
         </div>
 
+        {/* Footer for AdSense Compliance */}
+        <footer className="w-full mt-12 pb-6 text-center text-[10px] text-gray-500 font-medium relative z-20">
+          <div className="flex justify-center gap-4 mb-2">
+            <a href="/privacy" className="hover:text-[#13dfbf] transition-colors">Privacy Policy</a>
+            <span className="text-gray-700">•</span>
+            <a href="/terms" className="hover:text-[#13dfbf] transition-colors">Terms of Service</a>
+          </div>
+          <p>© {new Date().getFullYear()} TrackTune. All Rights Reserved.</p>
+        </footer>
+
       </div>
     </div>
   );
