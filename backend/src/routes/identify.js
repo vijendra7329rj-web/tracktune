@@ -133,23 +133,39 @@ async function findLoudestStart(filePath, duration) {
     { label: "loudness-end", start: maxStart },
   ]);
 
-  let loudest = candidates[0]?.start || 0;
-  let loudestVolume = -100;
+  // Run all volume checks in parallel to save time
+  try {
+    const volumes = await Promise.all(
+      candidates.map(candidate => measureMeanVolume(filePath, candidate.start))
+    );
 
-  for (const candidate of candidates) {
-    const volume = await measureMeanVolume(filePath, candidate.start);
-    if (volume > loudestVolume) {
-      loudestVolume = volume;
-      loudest = candidate.start;
+    let loudest = candidates[0]?.start || 0;
+    let loudestVolume = -100;
+
+    for (let i = 0; i < candidates.length; i++) {
+      if (volumes[i] > loudestVolume) {
+        loudestVolume = volumes[i];
+        loudest = candidates[i].start;
+      }
     }
+    return loudest;
+  } catch (error) {
+    console.warn("Failed to find loudest start in parallel, falling back to 0s", error);
+    return 0;
   }
-  return loudest;
 }
 
 async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const duration = await getDurationSeconds(sourcePath);
   const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
-  const loudestStart = await findLoudestStart(sourcePath, duration);
+  
+  // Speed Optimization: If video is under 20s, skip loudness check entirely
+  let loudestStart = 0;
+  if (duration >= 20) {
+    loudestStart = await findLoudestStart(sourcePath, duration);
+  } else {
+    console.log(`[${debugId}] Short clip (${duration.toFixed(1)}s). Skipping loudness scan and using start of video.`);
+  }
 
   const baseStarts = dedupeStarts([
     { label: "loudest", start: loudestStart },
@@ -158,7 +174,8 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
     { label: "start", start: 0 },
   ]);
 
-  const normalized = "aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11";
+  // Dynamic audio normalization + noise filtering (highpass and lowpass to clean voice/bass)
+  const normalized = "aresample=16000,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15";
   const plans = [];
 
   for (const base of baseStarts) {
@@ -166,7 +183,7 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
       label: `${base.label}-clean`,
       start: base.start,
       filter: normalized,
-      path: path.join(tempDir, `${debugId}_${base.label}_clean.m4a`),
+      path: path.join(tempDir, `${debugId}_${base.label}_clean.wav`),
     });
   }
 
@@ -174,8 +191,8 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const variants = [
     { suffix: "slowed", filter: `atempo=0.92,${normalized}` },
     { suffix: "sped", filter: `atempo=1.08,${normalized}` },
-    { suffix: "pitch-down", filter: `asetrate=15040,aresample=16000,atempo=1.064,${normalized}` },
-    { suffix: "pitch-up", filter: `asetrate=16960,aresample=16000,atempo=0.943,${normalized}` },
+    { suffix: "pitch-down", filter: `asetrate=15040,aresample=16000,atempo=1.064,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
+    { suffix: "pitch-up", filter: `asetrate=16960,aresample=16000,atempo=0.943,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
   ];
 
   for (const variant of variants) {
@@ -183,16 +200,17 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
       label: `${priorityBase.label}-${variant.suffix}`,
       start: priorityBase.start,
       filter: variant.filter,
-      path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.m4a`),
+      path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.wav`),
     });
   }
   return plans.slice(0, Math.max(1, MAX_ATTEMPTS));
 }
 
 async function createSample(sourcePath, plan) {
+  // PCM 16-bit encoding for WAV is extremely fast because it bypasses compression codec processing
   await runTool(
     FFMPEG_PATH,
-    ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "16000", "-af", plan.filter, "-b:a", "64k", plan.path],
+    ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "16000", "-af", plan.filter, "-acodec", "pcm_s16le", plan.path],
     60000,
   );
 }

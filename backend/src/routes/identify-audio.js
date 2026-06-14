@@ -102,6 +102,7 @@ async function convertToWav(inputPath, outputPath) {
     "-i", inputPath,
     "-ar", "16000",
     "-ac", "1",
+    "-af", "highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15",
     "-f", "wav",
     outputPath
   ], { timeout: 30000 });
@@ -123,15 +124,19 @@ router.post("/identify-audio", async (req, res) => {
   const tempFiles = [inputPath, convertedPath];
 
   try {
-    // Write the raw audio buffer to disk
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      req.on("data", (chunk) => chunks.push(chunk));
-      req.on("end", resolve);
-      req.on("error", reject);
-    });
+    // If express.raw middleware is active, it parses the body into req.body as a Buffer.
+    // Otherwise, we fallback to reading the request stream chunks.
+    let audioBuffer = req.body;
+    if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) {
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        req.on("data", (chunk) => chunks.push(chunk));
+        req.on("end", resolve);
+        req.on("error", reject);
+      });
+      audioBuffer = Buffer.concat(chunks);
+    }
 
-    const audioBuffer = Buffer.concat(chunks);
     if (audioBuffer.length < 1000) {
       return res.status(400).json({ error: "Audio recording is too short or empty. Please try again." });
     }

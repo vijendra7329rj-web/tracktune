@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { identifySong, identifySongFromAudio } from '../api';
-import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2 } from 'lucide-react';
+import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2, Upload } from 'lucide-react';
 
 const searchMessages = [
   "Got it! Opening our ears... 🎧",
@@ -33,6 +33,23 @@ export default function HomeScreen() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await identifySongFromAudio(file);
+      sessionStorage.setItem('current_song', JSON.stringify(data));
+      setLocation(`/result/${data.id}`);
+    } catch (err) {
+      setError(err.message || "We couldn't identify a song in this file. Please try another one.");
+      setLoading(false);
+    }
+  };
 
   // Setup sharing parameters from native OS share sheet (Web Share Target)
   useEffect(() => {
@@ -243,28 +260,15 @@ export default function HomeScreen() {
           </p>
         </div>
 
-        {/* Dynamic Interactive Central Listening Hub (Shazam Mode) */}
-        <div className="flex flex-col items-center justify-center my-6 py-4 relative">
-          <div className="absolute w-60 h-60 rounded-full border border-[#13dfbf]/5 animate-pulse duration-3000"></div>
-          
-          <button 
-            onClick={startMicRecording}
-            className="relative w-36 h-36 bg-gradient-to-tr from-[#00c0a9] to-[#13dfbf] rounded-full shadow-[0_0_50px_rgba(19,223,191,0.25)] flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 group border-4 border-[#021110]"
-          >
-            {/* Outer dynamic glowing ring */}
-            <span className="absolute inset-0 rounded-full border-2 border-white/20 scale-100 group-hover:scale-110 transition-transform duration-500"></span>
-            
-            <Mic size={42} className="text-black mb-1 group-hover:rotate-12 transition-transform duration-300" />
-            <span className="text-xs font-black text-black uppercase tracking-wider">Tap to Listen</span>
-          </button>
-          
-          <p className="text-[#13dfbf] text-xs font-bold mt-6 flex items-center gap-1.5 bg-[#13dfbf]/5 px-4 py-1.5 rounded-full border border-[#13dfbf]/10">
-            <Volume2 size={12} className="animate-pulse" /> Identify music playing nearby
-          </p>
-        </div>
+        {/* Shared Error Banner */}
+        {error && (
+          <div className="w-full mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] text-center font-medium leading-relaxed relative z-20">
+            {error}
+          </div>
+        )}
 
-        {/* Input Card (Social Share / Manual Paste) */}
-        <div className="w-full glass-card p-5 relative z-20">
+        {/* 1. TOP: Input Card (Social Share / Manual Paste) */}
+        <div className="w-full glass-card p-5 mt-4 relative z-20">
           <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#13dfbf] uppercase tracking-widest">
             <Share2 size={14} /> Identify from Social Media
           </div>
@@ -289,16 +293,54 @@ export default function HomeScreen() {
           >
             <Search size={14} /> Search Video Link
           </button>
+        </div>
+
+        {/* 2. MIDDLE: Dynamic Interactive Central Listening Hub (Shazam Mode) */}
+        <div className="flex flex-col items-center justify-center my-6 py-2 relative">
+          <div className="absolute w-60 h-60 rounded-full border border-[#13dfbf]/5 animate-pulse duration-3000"></div>
           
-          {error && (
-            <div className="mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] text-center font-medium leading-relaxed">
-              {error}
-            </div>
-          )}
+          <button 
+            onClick={startMicRecording}
+            className="relative w-32 h-32 bg-gradient-to-tr from-[#00c0a9] to-[#13dfbf] rounded-full shadow-[0_0_50px_rgba(19,223,191,0.25)] flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 group border-4 border-[#021110]"
+          >
+            {/* Outer dynamic glowing ring */}
+            <span className="absolute inset-0 rounded-full border-2 border-white/20 scale-100 group-hover:scale-110 transition-transform duration-500"></span>
+            
+            <Mic size={36} className="text-black mb-1 group-hover:rotate-12 transition-transform duration-300" />
+            <span className="text-[10px] font-black text-black uppercase tracking-wider">Tap to Listen</span>
+          </button>
+          
+          <p className="text-[#13dfbf] text-[10px] font-bold mt-4 flex items-center gap-1.5 bg-[#13dfbf]/5 px-3 py-1 rounded-full border border-[#13dfbf]/10">
+            <Volume2 size={10} className="animate-pulse" /> Identify music playing nearby
+          </p>
+        </div>
+
+        {/* 3. BOTTOM: Media File Upload Card */}
+        <div className="w-full glass-card p-5 relative z-20">
+          <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#13dfbf] uppercase tracking-widest">
+            <Upload size={14} /> Identify from Media File
+          </div>
+          
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            accept="video/*,audio/*" 
+            className="hidden" 
+          />
+          
+          <button
+            onClick={() => fileInputRef.current.click()}
+            className="w-full bg-black/30 border border-[#13dfbf]/20 hover:border-[#13dfbf]/50 hover:bg-[#13dfbf]/5 text-white font-extrabold py-4 rounded-xl transition-all duration-300 flex flex-col items-center justify-center gap-1.5 text-xs tracking-wider uppercase group"
+          >
+            <Upload size={20} className="text-[#13dfbf] group-hover:scale-110 transition-transform duration-300" />
+            <span className="text-gray-400 group-hover:text-white transition-colors text-[11px]">Choose Video or Audio file</span>
+            <span className="text-[8px] text-gray-500 lowercase normal-case tracking-normal">Supports MP4, MP3, WAV, etc.</span>
+          </button>
         </div>
 
         {/* Footer for AdSense Compliance */}
-        <footer className="w-full mt-12 pb-6 text-center text-[10px] text-gray-500 font-medium relative z-20">
+        <footer className="w-full mt-8 pb-4 text-center text-[10px] text-gray-500 font-medium relative z-20">
           <div className="flex justify-center gap-4 mb-2">
             <a href="/privacy" className="hover:text-[#13dfbf] transition-colors">Privacy Policy</a>
             <span className="text-gray-700">•</span>
