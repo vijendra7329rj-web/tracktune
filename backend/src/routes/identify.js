@@ -97,21 +97,6 @@ async function getDurationSeconds(filePath) {
   }
 }
 
-async function measureMeanVolume(filePath, start) {
-  try {
-    const { stderr } = await runTool(
-      FFMPEG_PATH,
-      ["-hide_banner", "-ss", start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", filePath, "-af", "volumedetect", "-f", "null", "-"],
-      45000,
-    );
-    const match = stderr.match(/mean_volume:\s*(-?\d+(?:\.\d+)?) dB/i);
-    return match ? Number.parseFloat(match[1]) : -100;
-  } catch (error) {
-    console.warn("ffmpeg volume detection failed", error);
-    return -100;
-  }
-}
-
 function dedupeStarts(starts) {
   const seen = new Set();
   return starts.filter((item) => {
@@ -123,58 +108,17 @@ function dedupeStarts(starts) {
   });
 }
 
-async function findLoudestStart(filePath, duration) {
-  const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
-  const candidates = dedupeStarts([
-    { label: "loudness-0", start: 0 },
-    { label: "loudness-25", start: maxStart * 0.25 },
-    { label: "loudness-50", start: maxStart * 0.5 },
-    { label: "loudness-75", start: maxStart * 0.75 },
-    { label: "loudness-end", start: maxStart },
-  ]);
-
-  // Run all volume checks in parallel to save time
-  try {
-    const volumes = await Promise.all(
-      candidates.map(candidate => measureMeanVolume(filePath, candidate.start))
-    );
-
-    let loudest = candidates[0]?.start || 0;
-    let loudestVolume = -100;
-
-    for (let i = 0; i < candidates.length; i++) {
-      if (volumes[i] > loudestVolume) {
-        loudestVolume = volumes[i];
-        loudest = candidates[i].start;
-      }
-    }
-    return loudest;
-  } catch (error) {
-    console.warn("Failed to find loudest start in parallel, falling back to 0s", error);
-    return 0;
-  }
-}
-
 async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const duration = await getDurationSeconds(sourcePath);
   const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
-  
-  // Speed Optimization: If video is under 20s, skip loudness check entirely
-  let loudestStart = 0;
-  if (duration >= 20) {
-    loudestStart = await findLoudestStart(sourcePath, duration);
-  } else {
-    console.log(`[${debugId}] Short clip (${duration.toFixed(1)}s). Skipping loudness scan and using start of video.`);
-  }
 
+  // Directly check from middle (drop/chorus), start, and end of the track (no CPU volume checks)
   const baseStarts = dedupeStarts([
-    { label: "loudest", start: loudestStart },
-    { label: "end", start: maxStart },
     { label: "middle", start: maxStart * 0.5 },
     { label: "start", start: 0 },
+    { label: "end", start: maxStart },
   ]);
 
-  // Dynamic audio normalization + noise filtering (highpass and lowpass to clean voice/bass)
   const normalized = "aresample=44100,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15";
   const plans = [];
 
@@ -187,7 +131,7 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
     });
   }
 
-  const priorityBase = baseStarts[0] || { label: "start", start: 0 };
+  const priorityBase = baseStarts[0] || { label: "middle", start: maxStart * 0.5 };
   const variants = [
     { suffix: "slowed", filter: `atempo=0.92,${normalized}` },
     { suffix: "sped", filter: `atempo=1.08,${normalized}` },
