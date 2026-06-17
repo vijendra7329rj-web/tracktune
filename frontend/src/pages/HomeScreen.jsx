@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
-import { identifySong, identifySongFromAudio } from '../api';
-import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2, Upload } from 'lucide-react';
+import { identifySong, identifySongFromAudio, getAuthConfig, loginWithGoogle } from '../api';
+import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2, Upload, LogOut, User } from 'lucide-react';
 
 const searchMessages = [
   "Got it! Opening our ears... 🎧",
@@ -30,10 +30,77 @@ export default function HomeScreen() {
   const [error, setError] = useState(null);
   const [, setLocation] = useLocation();
 
+  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user') || 'null'));
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState('');
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Fetch Google Client ID
+  useEffect(() => {
+    async function loadConfig() {
+      try {
+        const config = await getAuthConfig();
+        setGoogleClientId(config.googleClientId);
+      } catch (err) {
+        console.error("Failed to load Google Auth Client ID:", err);
+      }
+    }
+    loadConfig();
+  }, []);
+
+  // Popup logic
+  useEffect(() => {
+    if (user) return; // If already logged in, do not show popup
+
+    const lastPopup = localStorage.getItem('last_popup_time');
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000; // 24 hours in ms
+
+    if (!lastPopup || (now - Number(lastPopup)) > oneDay) {
+      // Show modal and save time
+      setShowAuthModal(true);
+      localStorage.setItem('last_popup_time', now.toString());
+    }
+  }, [user]);
+
+  // Google Sign-In Button Rendering
+  useEffect(() => {
+    if (showAuthModal && googleClientId && window.google) {
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCallback,
+      });
+
+      window.google.accounts.id.renderButton(
+        document.getElementById("google-signin-button"),
+        { theme: "outline", size: "large", width: 280 }
+      );
+    }
+  }, [showAuthModal, googleClientId]);
+
+  const handleGoogleCallback = async (response) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const userData = await loginWithGoogle(response.credential);
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      setShowAuthModal(false);
+    } catch (err) {
+      setError(err.message || "Failed to log in with Google. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('user');
+    setUser(null);
+  };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -241,6 +308,36 @@ export default function HomeScreen() {
         </div>
       )}
 
+      {/* User Session Controller */}
+      <div className="absolute top-4 right-4 z-40">
+        {user ? (
+          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-full pl-2 pr-3.5 py-1.5 backdrop-blur-md">
+            {user.picture ? (
+              <img src={user.picture} alt={user.name} className="w-6 h-6 rounded-full border border-[#13dfbf]/40 object-cover" />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-[#042322] border border-[#13dfbf]/40 flex items-center justify-center">
+                <User size={12} className="text-[#13dfbf]" />
+              </div>
+            )}
+            <span className="text-[10px] font-bold text-gray-300 max-w-[80px] truncate">{user.name || user.email}</span>
+            <button 
+              onClick={handleSignOut}
+              className="text-gray-400 hover:text-red-400 transition-colors p-1"
+              title="Sign Out"
+            >
+              <LogOut size={12} />
+            </button>
+          </div>
+        ) : (
+          <button 
+            onClick={() => setShowAuthModal(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-[#00c0a9] to-[#13dfbf] text-black font-extrabold px-4 py-2 rounded-full text-[10px] uppercase tracking-wider shadow-md hover:scale-105 active:scale-95 transition-all duration-300 border border-white/10"
+          >
+            <User size={12} /> Sign In
+          </button>
+        )}
+      </div>
+
       {/* Main Contents */}
       <div className="w-full flex-1 flex flex-col items-center justify-between py-6">
         
@@ -350,6 +447,35 @@ export default function HomeScreen() {
         </footer>
 
       </div>
+
+      {/* 3. Google Sign-In Prompt Modal */}
+      {showAuthModal && (
+        <div className="absolute inset-0 bg-[#021110]/90 z-50 flex items-center justify-center p-6 backdrop-blur-md transition-all duration-300 animate-fade-in">
+          <div className="glass-card w-full max-w-sm p-6 text-center border border-[#13dfbf]/30 relative flex flex-col items-center justify-center shadow-[0_0_80px_rgba(19,223,191,0.2)]">
+            <div className="w-16 h-16 bg-[#042322] border-2 border-[#13dfbf] rounded-2xl flex items-center justify-center mb-4 shadow-lg animate-float">
+              <Sparkles size={28} className="text-[#13dfbf] animate-pulse" />
+            </div>
+            
+            <h3 className="text-white text-lg font-black tracking-tight mb-2">Unlock Unlimited Discovery</h3>
+            <p className="text-gray-400 text-xs leading-relaxed mb-6">
+              Create an account or sign in with Google to save your song search history, share favorites, and get unlimited identifications!
+            </p>
+
+            {/* Google Sign-in API Button Container */}
+            <div className="w-full flex justify-center mb-4">
+              <div id="google-signin-button" className="inline-block"></div>
+            </div>
+
+            <button
+              onClick={() => setShowAuthModal(false)}
+              className="text-[10px] text-gray-500 hover:text-gray-300 font-extrabold uppercase tracking-widest transition-all mt-4 px-4 py-2"
+            >
+              Maybe Later
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

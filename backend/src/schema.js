@@ -12,6 +12,18 @@ import {
   boolean,
 } from "drizzle-orm/pg-core";
 
+// ── Users table — stores user profiles from Google login ─
+export const usersTable = pgTable("users", {
+  id: serial("id").primaryKey(),
+  googleId: text("google_id").unique().notNull(),
+  email: text("email").unique().notNull(),
+  name: text("name").notNull().default(""),
+  picture: text("picture").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ── Songs table — stores every identified song ────────
 export const songsTable = pgTable("songs", {
   id: serial("id").primaryKey(),

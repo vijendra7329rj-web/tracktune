@@ -25,3 +25,24 @@ export async function identifySongFromAudio(audioBlob) {
   }
   return res.json();
 }
+
+export async function loginWithGoogle(credential) {
+  const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || "Failed to log in with Google.");
+  }
+  return res.json();
+}
+
+export async function getAuthConfig() {
+  const res = await fetch(`${API_BASE_URL}/api/auth/config`);
+  if (!res.ok) {
+    throw new Error("Failed to load auth configuration.");
+  }
+  return res.json();
+}

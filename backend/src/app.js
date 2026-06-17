@@ -19,6 +19,7 @@ import identifyAudioRouter from "./routes/identify-audio.js";
 import historyRouter from "./routes/history.js";
 import trendingRouter from "./routes/trending.js";
 import songsRouter from "./routes/songs.js";
+import authRouter from "./routes/auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +60,7 @@ app.use("/api", identifyAudioRouter);
 app.use("/api", historyRouter);
 app.use("/api", trendingRouter);
 app.use("/api", songsRouter);
+app.use("/api", authRouter);
 
 // ── Top-level Health Checks (Ensures Render health checks always succeed) ──
 app.get("/healthz", (req, res) => res.json({ status: "ok" }));
