@@ -45,8 +45,21 @@ export default function HomeScreen() {
       try {
         const config = await getAuthConfig();
         setGoogleClientId(config.googleClientId);
+
+        // Dynamically inject Google AdSense script if publisher ID is configured
+        if (config.adsensePublisherId) {
+          const existingScript = document.querySelector(`script[src*="adsbygoogle.js"]`);
+          if (!existingScript) {
+            console.log("Injecting Google AdSense script with client ID:", config.adsensePublisherId);
+            const script = document.createElement('script');
+            script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${config.adsensePublisherId}`;
+            script.async = true;
+            script.crossOrigin = 'anonymous';
+            document.head.appendChild(script);
+          }
+        }
       } catch (err) {
-        console.error("Failed to load Google Auth Client ID:", err);
+        console.error("Failed to load configuration:", err);
       }
     }
     loadConfig();
