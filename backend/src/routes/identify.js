@@ -14,7 +14,7 @@ import { promisify } from "util";
 const router = Router();
 const execFileAsync = promisify(execFile);
 
-const SAMPLE_SECONDS = 10;
+const SAMPLE_SECONDS = 4;
 const MAX_ATTEMPTS = Number(process.env.MAX_RECOGNITION_ATTEMPTS || 8);
 const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
@@ -175,7 +175,7 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
   ]);
 
   // Dynamic audio normalization + noise filtering (highpass and lowpass to clean voice/bass)
-  const normalized = "aresample=16000,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15";
+  const normalized = "aresample=44100,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15";
   const plans = [];
 
   for (const base of baseStarts) {
@@ -183,7 +183,7 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
       label: `${base.label}-clean`,
       start: base.start,
       filter: normalized,
-      path: path.join(tempDir, `${debugId}_${base.label}_clean.wav`),
+      path: path.join(tempDir, `${debugId}_${base.label}_clean.raw`),
     });
   }
 
@@ -191,8 +191,8 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const variants = [
     { suffix: "slowed", filter: `atempo=0.92,${normalized}` },
     { suffix: "sped", filter: `atempo=1.08,${normalized}` },
-    { suffix: "pitch-down", filter: `asetrate=15040,aresample=16000,atempo=1.064,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
-    { suffix: "pitch-up", filter: `asetrate=16960,aresample=16000,atempo=0.943,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
+    { suffix: "pitch-down", filter: `asetrate=41454,aresample=44100,atempo=1.064,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
+    { suffix: "pitch-up", filter: `asetrate=46746,aresample=44100,atempo=0.943,highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15` },
   ];
 
   for (const variant of variants) {
@@ -200,73 +200,68 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
       label: `${priorityBase.label}-${variant.suffix}`,
       start: priorityBase.start,
       filter: variant.filter,
-      path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.wav`),
+      path: path.join(tempDir, `${debugId}_${priorityBase.label}_${variant.suffix}.raw`),
     });
   }
   return plans.slice(0, Math.max(1, MAX_ATTEMPTS));
 }
 
 async function createSample(sourcePath, plan) {
-  // PCM 16-bit encoding for WAV is extremely fast because it bypasses compression codec processing
+  // Output raw signed 16-bit PCM little-endian mono audio sampled at 44100Hz
   await runTool(
     FFMPEG_PATH,
-    ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "16000", "-af", plan.filter, "-acodec", "pcm_s16le", plan.path],
+    ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "44100", "-af", plan.filter, "-f", "s16le", "-acodec", "pcm_s16le", plan.path],
     60000,
   );
 }
 
-function parseMatches(acrData, plan) {
-  const musicList = Array.isArray(acrData?.metadata?.music) ? acrData.metadata.music : acrData?.metadata?.music ? [acrData.metadata.music] : [];
-  return musicList.map((music) => {
-    const title = cleanText(music?.title);
-    const artist = Array.isArray(music?.artists) ? music.artists.map((item) => cleanText(item?.name)).filter(Boolean).join(", ") : cleanText(music?.artist);
-    const album = cleanText(music?.album?.name);
-    const yearStr = cleanText(music?.release_date);
-    const year = yearStr ? parseInt(yearStr.substring(0, 4)) : new Date().getFullYear();
-    const genre = music?.genres && music.genres.length > 0 ? cleanText(music.genres[0].name) : "Pop";
-    const spotifyId = cleanText(music?.external_metadata?.spotify?.track?.id);
-    const youtubeId = cleanText(music?.external_metadata?.youtube?.vid);
-    return {
-      title, artist, album, year, genre,
-      score: Number(music?.score || 0),
-      spotifyId, youtubeId,
-      spotifyUrl: getSpotifyUrl(spotifyId),
-      youtubeUrl: getYoutubeUrl(youtubeId),
-      matchedSample: plan.label,
-      recognitionMethod: "acrcloud-multi-sample-v2",
-    };
-  }).filter((match) => !isUnknownValue(match.title) && !isUnknownValue(match.artist));
-}
+async function identifyWithShazam(samplePath, plan) {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) throw new Error("TrackTune is missing the RAPIDAPI_KEY environment variable.");
 
-async function identifyWithAcrCloud(samplePath, plan) {
-  const host = process.env.ACR_HOST || "identify-ap-southeast-1.acrcloud.com";
-  const accessKey = process.env.ACR_ACCESS_KEY;
-  const accessSecret = process.env.ACR_ACCESS_SECRET;
-  if (!accessKey || !accessSecret) throw new Error("TrackTune is missing ACRCloud server keys.");
-  
-  const endpoint = "/v1/identify";
-  const signatureVersion = "1";
-  const dataType = "audio";
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const stringToSign = ["POST", endpoint, accessKey, dataType, signatureVersion, timestamp].join("\n");
-  const signature = crypto.createHmac("sha1", accessSecret).update(Buffer.from(stringToSign, "utf-8")).digest().toString("base64");
-  const sampleBytes = fs.statSync(samplePath).size;
+  const rawBuffer = fs.readFileSync(samplePath);
+  const base64Audio = rawBuffer.toString("base64");
 
-  const form = new FormData();
-  form.append("sample", fs.createReadStream(samplePath));
-  form.append("access_key", accessKey);
-  form.append("data_type", dataType);
-  form.append("signature_version", signatureVersion);
-  form.append("signature", signature);
-  form.append("sample_bytes", sampleBytes);
-  form.append("timestamp", timestamp);
-
-  const acrResponse = await axios.post(`https://${host}${endpoint}`, form, {
-    headers: form.getHeaders(),
-    timeout: 30000,
+  const response = await axios.post("https://shazam.p.rapidapi.com/songs/v2/detect", base64Audio, {
+    headers: {
+      "content-type": "text/plain",
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "shazam.p.rapidapi.com"
+    },
+    timeout: 25000
   });
 
-  return { status: acrResponse.data?.status, matches: parseMatches(acrResponse.data, plan) };
+  const track = response.data?.track;
+  if (!track) {
+    return { matches: [] };
+  }
+
+  const title = cleanText(track.title);
+  const artist = cleanText(track.subtitle);
+  const album = cleanText(track.sections?.[0]?.metadata?.find(m => m.title === "Album")?.text || "");
+  const genre = cleanText(track.genres?.primary || "Pop");
+
+  // Construct fallback search URLs for Spotify and YouTube
+  const searchTerms = `${artist} ${title}`;
+  const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerms)}`;
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms)}`;
+
+  const match = {
+    title,
+    artist,
+    album,
+    year: new Date().getFullYear(),
+    genre,
+    spotifyId: "",
+    youtubeId: "",
+    spotifyUrl,
+    youtubeUrl,
+    score: 100,
+    matchedSample: plan.label,
+    recognitionMethod: "shazam-rapidapi",
+  };
+
+  return { matches: [match] };
 }
 
 function chooseBestMatch(matches) {
@@ -603,8 +598,8 @@ router.post("/identify", async (req, res) => {
     for (const plan of samplePlans) {
       console.log(`[${debugId}] Creating sample ${plan.label} from ${plan.start}s`);
       await createSample(sourcePath, plan);
-      console.log(`[${debugId}] Sending sample ${plan.label} to ACRCloud`);
-      const result = await identifyWithAcrCloud(plan.path, plan);
+      console.log(`[${debugId}] Sending sample ${plan.label} to Shazam API`);
+      const result = await identifyWithShazam(plan.path, plan);
       allMatches.push(...result.matches);
       bestMatch = chooseBestMatch(allMatches);
 
@@ -657,7 +652,7 @@ router.post("/identify", async (req, res) => {
     if (error?.message?.includes("Sign in") || error?.message?.includes("bot")) {
       message = "YouTube is blocking this request. Please add YOUTUBE_COOKIES to Render environment variables.";
     }
-    return res.status(500).json({ error: message, confidence: 0, matchedSample: "", recognitionMethod: "acrcloud", possibleMatches: [], debugId });
+    return res.status(500).json({ error: message, confidence: 0, matchedSample: "", recognitionMethod: "shazam-rapidapi", possibleMatches: [], debugId });
   } finally {
     for (const file of tempFiles) {
       if (fs.existsSync(file)) {

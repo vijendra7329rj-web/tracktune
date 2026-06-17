@@ -62,48 +62,34 @@ function parseMatches(acrData) {
   }).filter((match) => !isUnknownValue(match.title) && !isUnknownValue(match.artist));
 }
 
-async function identifyAudioWithAcrCloud(audioPath) {
-  const host = process.env.ACR_HOST || "identify-ap-southeast-1.acrcloud.com";
-  const accessKey = process.env.ACR_ACCESS_KEY;
-  const accessSecret = process.env.ACR_ACCESS_SECRET;
-  if (!accessKey || !accessSecret) throw new Error("Missing ACRCloud credentials.");
+async function identifyWithShazam(audioPath) {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) throw new Error("TrackTune is missing the RAPIDAPI_KEY environment variable.");
 
-  const endpoint = "/v1/identify";
-  const signatureVersion = "1";
-  const dataType = "audio";
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const stringToSign = ["POST", endpoint, accessKey, dataType, signatureVersion, timestamp].join("\n");
-  const signature = crypto.createHmac("sha1", accessSecret)
-    .update(Buffer.from(stringToSign, "utf-8"))
-    .digest()
-    .toString("base64");
-  const sampleBytes = fs.statSync(audioPath).size;
+  const rawBuffer = fs.readFileSync(audioPath);
+  const base64Audio = rawBuffer.toString("base64");
 
-  const form = new FormData();
-  form.append("sample", fs.createReadStream(audioPath));
-  form.append("access_key", accessKey);
-  form.append("data_type", dataType);
-  form.append("signature_version", signatureVersion);
-  form.append("signature", signature);
-  form.append("sample_bytes", sampleBytes);
-  form.append("timestamp", timestamp);
-
-  const acrResponse = await axios.post(`https://${host}${endpoint}`, form, {
-    headers: form.getHeaders(),
-    timeout: 30000,
+  const response = await axios.post("https://shazam.p.rapidapi.com/songs/v2/detect", base64Audio, {
+    headers: {
+      "content-type": "text/plain",
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "shazam.p.rapidapi.com"
+    },
+    timeout: 25000
   });
 
-  return acrResponse.data;
+  return response.data;
 }
 
-async function convertToWav(inputPath, outputPath) {
+async function convertToRawPcm(inputPath, outputPath) {
   await execFileAsync(FFMPEG_PATH, [
     "-hide_banner", "-y",
     "-i", inputPath,
-    "-ar", "16000",
+    "-ar", "44100",
     "-ac", "1",
     "-af", "highpass=f=200,lowpass=f=4000,dynaudnorm=f=150:g=15",
-    "-f", "wav",
+    "-f", "s16le",
+    "-acodec", "pcm_s16le",
     outputPath
   ], { timeout: 30000 });
 }
@@ -120,7 +106,7 @@ router.post("/identify-audio", async (req, res) => {
 
   // The audio blob is sent as raw body bytes with Content-Type header
   const inputPath = path.join(tempDir, `tracktune_mic_${debugId}.webm`);
-  const convertedPath = path.join(tempDir, `tracktune_mic_${debugId}.wav`);
+  const convertedPath = path.join(tempDir, `tracktune_mic_${debugId}.raw`);
   const tempFiles = [inputPath, convertedPath];
 
   try {
@@ -144,29 +130,48 @@ router.post("/identify-audio", async (req, res) => {
     fs.writeFileSync(inputPath, audioBuffer);
     console.log(`[${debugId}] Received mic audio: ${audioBuffer.length} bytes`);
 
-    // Convert to standard WAV for ACRCloud
+    // Convert to standard raw PCM for Shazam API
     try {
-      await convertToWav(inputPath, convertedPath);
-      console.log(`[${debugId}] Converted to WAV successfully`);
+      await convertToRawPcm(inputPath, convertedPath);
+      console.log(`[${debugId}] Converted to raw PCM successfully`);
     } catch (convertErr) {
       // If conversion fails, try sending the original file directly
-      console.warn(`[${debugId}] WAV conversion failed, using original:`, convertErr.message);
+      console.warn(`[${debugId}] Raw PCM conversion failed, using original:`, convertErr.message);
       fs.copyFileSync(inputPath, convertedPath);
     }
 
-    // Send to ACRCloud
-    const acrData = await identifyAudioWithAcrCloud(convertedPath);
-    const matches = parseMatches(acrData);
-    const topMatches = [...new Map(matches.map(m => [uniqueKey(m), m]))
-      .values()].sort((a, b) => b.score - a.score).slice(0, 3);
-    const bestMatch = topMatches[0] || null;
+    // Send to Shazam API
+    const shazamData = await identifyWithShazam(convertedPath);
+    const track = shazamData?.track;
 
-    if (!bestMatch || bestMatch.score < 50) {
+    if (!track) {
       return res.status(404).json({
         error: "Could not identify the song. Make sure the music is clearly audible and try again.",
         debugId
       });
     }
+
+    const title = cleanText(track.title);
+    const artist = cleanText(track.subtitle);
+    const album = cleanText(track.sections?.[0]?.metadata?.find(m => m.title === "Album")?.text || "");
+    const genre = cleanText(track.genres?.primary || "Pop");
+
+    // Construct search queries for Spotify and YouTube
+    const searchTerms = `${artist} ${title}`;
+    const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerms)}`;
+    const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms)}`;
+
+    const bestMatch = {
+      title,
+      artist,
+      album,
+      genre,
+      spotifyId: "",
+      youtubeId: "",
+      spotifyUrl,
+      youtubeUrl,
+      score: 100
+    };
 
     // Save to DB
     let song = null;
@@ -179,7 +184,7 @@ router.post("/identify-audio", async (req, res) => {
     } else {
       const [newSong] = await db.insert(songsTable).values({
         title: bestMatch.title, artist: bestMatch.artist, album: bestMatch.album,
-        year: bestMatch.year, genre: bestMatch.genre,
+        year: new Date().getFullYear(), genre: bestMatch.genre,
         spotifyId: bestMatch.spotifyId, youtubeId: bestMatch.youtubeId,
         spotifyUrl: bestMatch.spotifyUrl, youtubeUrl: bestMatch.youtubeUrl,
         previewUrl: null,
@@ -197,7 +202,7 @@ router.post("/identify-audio", async (req, res) => {
       id: song.id, title: song.title, artist: song.artist, album: song.album,
       year: song.year, genre: song.genre,
       spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl,
-      confidence: bestMatch.score, possibleMatches: topMatches, debugId,
+      confidence: bestMatch.score, possibleMatches: [bestMatch], debugId,
     });
 
   } catch (error) {
