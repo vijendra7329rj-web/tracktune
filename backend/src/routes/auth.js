@@ -80,7 +80,8 @@ router.post("/auth/google", async (req, res) => {
 router.get("/auth/config", (req, res) => {
   return res.json({
     googleClientId: process.env.GOOGLE_CLIENT_ID || "",
-    adsensePublisherId: process.env.ADSENSE_PUBLISHER_ID || ""
+    adsensePublisherId: process.env.ADSENSE_PUBLISHER_ID || "",
+    googleAnalyticsId: process.env.GOOGLE_ANALYTICS_ID || ""
   });
 });
 

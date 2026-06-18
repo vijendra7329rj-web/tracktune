@@ -58,6 +58,27 @@ export default function HomeScreen() {
             document.head.appendChild(script);
           }
         }
+
+        // Dynamically inject Google Analytics script if analytics ID is configured
+        if (config.googleAnalyticsId) {
+          const existingScript = document.querySelector(`script[src*="googletagmanager.com/gtag"]`);
+          if (!existingScript) {
+            console.log("Injecting Google Analytics with ID:", config.googleAnalyticsId);
+            const script1 = document.createElement('script');
+            script1.src = `https://www.googletagmanager.com/gtag/js?id=${config.googleAnalyticsId}`;
+            script1.async = true;
+            document.head.appendChild(script1);
+
+            const script2 = document.createElement('script');
+            script2.text = `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${config.googleAnalyticsId}');
+            `;
+            document.head.appendChild(script2);
+          }
+        }
       } catch (err) {
         console.error("Failed to load configuration:", err);
       }
