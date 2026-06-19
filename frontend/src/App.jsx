@@ -4,6 +4,7 @@ import HomeScreen from './pages/HomeScreen.jsx';
 import ResultScreen from './pages/ResultScreen.jsx';
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
 import TermsOfService from './pages/TermsOfService.jsx';
+import FaqPage from './pages/FaqPage.jsx';
 import BottomNav from './components/BottomNav.jsx';
 
 // Dummy components for now
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/" component={HomeScreen} />
             <Route path="/result/:id" component={ResultScreen} />
             <Route path="/privacy" component={PrivacyPolicy} />
+            <Route path="/faq" component={FaqPage} />
             <Route path="/terms" component={TermsOfService} />
             <Route path="/history" component={HistoryScreen} />
             <Route path="/trending" component={TrendingScreen} />

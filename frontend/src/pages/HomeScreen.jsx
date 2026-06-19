@@ -475,6 +475,8 @@ export default function HomeScreen() {
           <div className="flex justify-center gap-4 mb-2">
             <a href="/privacy" className="hover:text-[#13dfbf] transition-colors">Privacy Policy</a>
             <span className="text-gray-700">•</span>
+            <a href="/faq" className="hover:text-[#13dfbf] transition-colors">FAQ & Help</a>
+            <span className="text-gray-700">•</span>
             <a href="/terms" className="hover:text-[#13dfbf] transition-colors">Terms of Service</a>
           </div>
           <p>© {new Date().getFullYear()} TrackTune. All Rights Reserved.</p>
