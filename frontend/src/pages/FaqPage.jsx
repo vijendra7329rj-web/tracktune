@@ -3,28 +3,33 @@ import { HelpCircle, ChevronDown, ChevronUp, ArrowLeft, Sparkles, Music, Link, U
 
 const faqData = [
   {
-    question: "How to find a song from an Instagram Reel link?",
-    answer: "To identify a song from an Instagram Reel, open the Instagram app, tap the Share icon, and click 'Copy Link'. Open tracktune.online, paste the copied link into the search box, and click 'Search Video Link'. TrackTune will extract the audio and find the song in under 3 seconds!",
+    question: "What is this song? How do I find background music from video links?",
+    answer: "TrackTune is a free background music finder by video link. To find out 'what is this song' in any Instagram Reel, YouTube Short, or TikTok, copy the link, paste it in the search box, and run the song finder by video link. TrackTune extracts the audio, identifies the song in under 3 seconds, and provides direct links to open it.",
     icon: Link
   },
   {
-    question: "How to identify music from a YouTube Shorts URL?",
-    answer: "Just copy the link of any YouTube Short or standard YouTube video. Paste the link into the search input on TrackTune and click search. We will analyze the video's audio track and return the name, artist, and direct redirect links for Spotify and YouTube.",
-    icon: Music
-  },
-  {
-    question: "How does the 'Tap to Listen' microphone song finder work?",
-    answer: "If you hear a song playing around you (on a TV, radio, or in a public space), simply tap the central 'Tap to Listen' microphone button. Make sure to allow browser microphone access. TrackTune will capture an 8-second sample, decode the soundwaves, and identify the song instantly, similar to Shazam.",
+    question: "Can I use TrackTune as a music finder by sound or voice?",
+    answer: "Yes! TrackTune is a full-featured music finder by sound and music finder by voice. Tap the central 'Tap to Listen' microphone button and allow access. The app will capture an 8-second audio sample, identify the melody playing nearby, and act as a web-based music finder by click.",
     icon: Mic
   },
   {
-    question: "Can I identify a song by uploading a video or audio file?",
-    answer: "Yes, absolutely! If you have a video clip (MP4, MOV, AVI) or an audio file (MP3, WAV, AAC) saved on your device, use our 'Identify from Media File' section. Drag or select the file, and our backend will process and identify the song hiding inside the file.",
+    question: "How does the TrackTune AI music finder work?",
+    answer: "Our music finder AI uses advanced acoustic fingerprinting algorithms to decode audio waves from links or microphone recordings. By comparing sound patterns with a massive song database, this AI music finder matches the track with extreme accuracy, even with low quality or background noise.",
+    icon: Sparkles
+  },
+  {
+    question: "Is there a TrackTune music finder extension or music finder app?",
+    answer: "TrackTune is fully optimized as an online music finder that works on any browser without downloads. You don't need a heavy music finder app. We are also building a browser music finder extension for Chrome and Firefox to identify background music with a single click.",
     icon: Upload
   },
   {
-    question: "Is TrackTune free to use?",
-    answer: "Yes, TrackTune is completely free to use. You can search by pasting social media URLs, recording audio with your microphone, or uploading local media files. There are no hidden fees or charges.",
+    question: "How can I use the music finder google or search for songs by lyrics?",
+    answer: "While Google music finder requires typing lyrics, TrackTune is a link-based music finder online. If you only know a few words, you can use our links to search for the identified track's lyrics directly on YouTube and Spotify. TrackTune also helps search for the song on Google Music Finder dynamically.",
+    icon: Music
+  },
+  {
+    question: "Does TrackTune include a music extend bpm finder?",
+    answer: "Yes, our music finder by link identifies key audio details. Once a track is recognized, we provide you with metadata about the song, and we are adding support for a music extend bpm finder to identify the beats-per-minute (BPM) and tempo of any track.",
     icon: Sparkles
   }
 ];
@@ -101,7 +106,7 @@ export default function FaqPage() {
       {/* SEO Compliance Footer Note */}
       <div className="mt-8 p-5 bg-[#13dfbf]/5 border border-[#13dfbf]/10 rounded-2xl text-center backdrop-blur-md">
         <p className="text-[10px] text-gray-400 leading-relaxed">
-          Still have questions? Feel free to contact our support team at <span className="text-[#13dfbf] font-bold">support@tracktune.site</span>. We are continuously improving our song identification features to provide you with the fastest music discovery.
+          Still have questions? Feel free to contact our support team at <span className="text-[#13dfbf] font-bold">support@tracktune.site</span>. Whether you are looking for a music finder, Google music finder, or even typing common typos like musice finder, TrackTune is the fastest online music finder AI to identify what is this song.
         </p>
       </div>
 

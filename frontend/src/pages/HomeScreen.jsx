@@ -386,8 +386,8 @@ export default function HomeScreen() {
           <h1 className="text-2xl font-black text-center mb-1 text-white tracking-tight">
             Track<span className="text-[#13dfbf]">Tune</span>
           </h1>
-          <p className="text-gray-400 text-center text-xs tracking-wide">
-            Your Ultimate Music Discovery Suite
+          <p className="text-gray-400 text-center text-[10px] tracking-wide uppercase">
+            Free Online Music Finder AI & Song Identifier
           </p>
         </div>
 
