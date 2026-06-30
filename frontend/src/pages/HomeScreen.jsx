@@ -469,6 +469,23 @@ export default function HomeScreen() {
             <span className="text-[8px] text-gray-500 lowercase normal-case tracking-normal">Supports MP4, MP3, WAV, etc.</span>
           </button>
         </div>
+        {/* About / How It Works Text Section for AdSense Content Compliance */}
+        <section className="w-full mt-10 p-6 bg-[#0c1e1c]/40 border border-[#13dfbf]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left">
+          <h2 className="text-[#13dfbf] text-xs font-black uppercase tracking-wider mb-3">
+            About TrackTune — The Advanced AI Music Finder Online
+          </h2>
+          <p className="text-gray-300 text-[10px] leading-relaxed mb-4">
+            TrackTune is a free online music finder designed to identify what is this song playing in social media videos, microphone captures, or local media files. Using advanced music finder AI and acoustic fingerprinting algorithms, TrackTune helps you search, discover, and trace the background music of any video link in seconds.
+          </p>
+          <h3 className="text-white text-xs font-bold mb-2">How to Use the Video Link Song Finder</h3>
+          <p className="text-gray-400 text-[10px] leading-relaxed mb-4">
+            If you hear a song in an Instagram Reel, YouTube Short, or TikTok video, simply copy the URL and paste it into our search box above. TrackTune acts as a direct song finder by video link, extracting a high-quality audio sample and identifying the exact artist and track name without needing a browser music finder extension or downloading a separate music finder app.
+          </p>
+          <h3 className="text-white text-xs font-bold mb-2">Music Finder by Sound or File Upload</h3>
+          <p className="text-gray-400 text-[10px] leading-relaxed">
+            Need to identify music playing nearby? Click the central microphone button to use TrackTune as a music finder by sound or voice. You can also upload local video and audio files (like MP4, MP3, or WAV) to scan for music. TrackTune will process the sound waves and provide direct search redirection links to Spotify and YouTube.
+          </p>
+        </section>
 
         {/* Footer for AdSense Compliance */}
         <footer className="w-full mt-8 pb-4 text-center text-[10px] text-gray-500 font-medium relative z-20">

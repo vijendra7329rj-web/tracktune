@@ -14,7 +14,7 @@ const ProfileScreen = () => <div className="p-6 pt-12 text-center text-white"><h
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#021110] text-[#f0f0f0] overflow-x-hidden font-sans pb-24 relative select-none">
+    <div className="min-h-screen bg-[#021110] text-[#f0f0f0] overflow-x-hidden font-sans pb-10 relative select-none">
       {/* Liquid Gooey Morphic Background Blobs */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute inset-0 liquid-container opacity-40">
@@ -51,9 +51,9 @@ export default function App() {
             <Route path="/privacy" component={PrivacyPolicy} />
             <Route path="/faq" component={FaqPage} />
             <Route path="/terms" component={TermsOfService} />
-            <Route path="/history" component={HistoryScreen} />
-            <Route path="/trending" component={TrendingScreen} />
-            <Route path="/profile" component={ProfileScreen} />
+            <Route path="/history" component={HomeScreen} />
+            <Route path="/trending" component={HomeScreen} />
+            <Route path="/profile" component={HomeScreen} />
             <Route>
               <div className="flex flex-col items-center justify-center min-h-[60vh] p-6">
                 <h1 className="text-4xl font-black mb-2 text-[#13dfbf]">404</h1>
@@ -62,7 +62,7 @@ export default function App() {
               </div>
             </Route>
           </Switch>
-          <BottomNav />
+          {/* BottomNav hidden for AdSense approval compliance */}
         </Router>
       </div>
     </div>
