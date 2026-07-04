@@ -590,7 +590,7 @@ router.post("/identify", async (req, res) => {
       recognitionMethod: bestMatch.recognitionMethod, possibleMatches, debugId,
     });
   } catch (error) {
-    console.error(`[${debugId}] Identification Error:`, error.message);
+    console.error(`[${debugId}] Identification Error:`, error);
     let message = "TrackTune could not process this video. Try another link.";
     if (error?.code === "ENOENT") message = "Server missing FFmpeg/yt-dlp.";
     if (error?.message?.includes("Sign in") || error?.message?.includes("bot")) {
