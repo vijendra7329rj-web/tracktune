@@ -12,7 +12,13 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Create connection pool with SSL enabled
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 const CREATE_TABLES_SQL = `
 -- Songs table: stores every identified song
