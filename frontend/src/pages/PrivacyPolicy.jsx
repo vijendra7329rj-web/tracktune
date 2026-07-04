@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 export default function PrivacyPolicy() {
+  useEffect(() => {
+    document.title = "TrackTune Privacy Policy";
+  }, []);
   return (
     <div className="p-6 pt-12 text-[#f0f0f0]">
       <div className="flex items-center gap-3 mb-8">
