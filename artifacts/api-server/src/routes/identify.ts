@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { db, songsTable, historyTable } from "@workspace/db";
 import { IdentifySongBody } from "@workspace/api-zod";
 import youtubedl from "yt-dlp-exec";
@@ -58,6 +58,274 @@ function getSpotifyUrl(spotifyId: string): string {
 
 function getYoutubeUrl(youtubeId: string): string {
   return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
+}
+
+const COBALT_MIRRORS = [
+  "https://co.wuk.sh/api/json",
+  "https://api.cobalt.tools",
+  "https://cobalt.shizuku.io/api/json",
+  "https://cobalt.xyz/api/json"
+];
+
+async function downloadViaMirror(url: string, targetPath: string, debugId: string): Promise<boolean> {
+  let lastError: any = null;
+
+  for (const mirror of COBALT_MIRRORS) {
+    try {
+      console.log(`[${debugId}] Attempting mirror download from: ${mirror}`);
+      const response = await axios.post(mirror, {
+        url: url,
+        codec: "mp3",
+        downloadMode: "audio",
+        audioFormat: "mp3"
+      }, {
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        timeout: 15000
+      });
+
+      const downloadUrl = response.data?.url;
+      if (!downloadUrl) {
+        throw new Error(`Mirror ${mirror} did not return direct download link.`);
+      }
+
+      console.log(`[${debugId}] Mirror succeeded. Downloading audio payload from CDN...`);
+      
+      const fileResponse = await axios({
+        method: "get",
+        url: downloadUrl,
+        responseType: "stream",
+        timeout: 25000
+      });
+
+      const writer = fs.createWriteStream(targetPath);
+      fileResponse.data.pipe(writer);
+
+      await new Promise<void>((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      console.log(`[${debugId}] File saved successfully. Size: ${fs.statSync(targetPath).size} bytes`);
+      return true;
+    } catch (err: any) {
+      console.warn(`[${debugId}] Mirror ${mirror} failed:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw new Error(`All download mirrors failed. Last error: ${lastError?.message}`);
+}
+
+async function downloadViaRapidAPI(url: string, targetPath: string, debugId: string): Promise<boolean> {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) {
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+  }
+
+  console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
+  
+  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
+    url: url
+  }, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com"
+    },
+    timeout: 15000
+  });
+
+  const medias = response.data?.medias || [];
+  const audioMedia = medias.find((m: any) => m.type === "audio" || m.extension === "mp3" || m.quality === "audio") || medias.find((m: any) => m.extension === "mp4") || medias[0];
+  const downloadUrl = audioMedia?.url;
+
+  if (!downloadUrl) {
+    throw new Error("RapidAPI response did not contain a valid download URL.");
+  }
+
+  console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+
+  const fileResponse = await axios({
+    method: "get",
+    url: downloadUrl,
+    responseType: "stream",
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
+  });
+
+  const writer = fs.createWriteStream(targetPath);
+  fileResponse.data.pipe(writer);
+
+  await new Promise<void>((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  console.log(`[${debugId}] RapidAPI file saved. Size: ${fs.statSync(targetPath).size} bytes`);
+  return true;
+}
+
+async function downloadViaRapidAPIBackup(url: string, targetPath: string, debugId: string): Promise<boolean> {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) {
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+  }
+
+  console.log(`[${debugId}] Attempting download via Backup RapidAPI (Downloader B)...`);
+  
+  const response = await axios.get("https://all-in-one-video-downloader.p.rapidapi.com/index.php", {
+    params: { url: url },
+    headers: {
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "all-in-one-video-downloader.p.rapidapi.com"
+    },
+    timeout: 15000
+  });
+
+  const links = response.data?.links || [];
+  const audioLinkObj = links.find((l: any) => l.quality === "audio" || l.link?.includes(".mp3") || l.link?.includes("audio") || l.link?.includes("music")) || response.data?.video || response.data?.audio || links[0];
+  const downloadUrl = typeof audioLinkObj === "string" ? audioLinkObj : audioLinkObj?.link || response.data?.url;
+
+  if (!downloadUrl) {
+    throw new Error("Backup RapidAPI response did not contain a valid media download URL.");
+  }
+
+  console.log(`[${debugId}] Backup RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+
+  const fileResponse = await axios({
+    method: "get",
+    url: downloadUrl,
+    responseType: "stream",
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
+  });
+
+  const writer = fs.createWriteStream(targetPath);
+  fileResponse.data.pipe(writer);
+
+  await new Promise<void>((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  console.log(`[${debugId}] Backup RapidAPI file saved. Size: ${fs.statSync(targetPath).size} bytes`);
+  return true;
+}
+
+async function downloadAudio(url: string, sourceTemplate: string, debugId: string): Promise<string> {
+  const tempDir = "/tmp";
+  const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
+
+  // 1. Scan for any environment variables containing "RAPID" (bulletproof key detection)
+  let rapidApiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!rapidApiKey) {
+    const allRapidKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID"));
+    console.log(`[${debugId}] RAPIDAPI_KEY not found directly. Scanning env... found keys:`, allRapidKeys);
+    for (const altKey of allRapidKeys) {
+      const val = process.env[altKey]?.trim();
+      if (val && val.length > 10) {
+        console.log(`[${debugId}] Using alternate key name: "${altKey}" (length=${val.length})`);
+        rapidApiKey = val;
+        break;
+      }
+    }
+  }
+
+  console.log(`[${debugId}] RapidAPI key available: ${!!rapidApiKey}, length: ${rapidApiKey ? rapidApiKey.length : 0}`);
+
+  // 1. Try Premium RapidAPI Downloader A
+  if (rapidApiKey) {
+    process.env.RAPIDAPI_KEY = rapidApiKey;
+    try {
+      await downloadViaRapidAPI(url, mirrorPath, debugId);
+      return mirrorPath;
+    } catch (rapidError: any) {
+      console.warn(`[${debugId}] Premium RapidAPI Downloader A failed, trying Downloader B...`, rapidError.message);
+      
+      // Try Downloader B
+      try {
+        await downloadViaRapidAPIBackup(url, mirrorPath, debugId);
+        return mirrorPath;
+      } catch (backupError: any) {
+        console.warn(`[${debugId}] Premium RapidAPI Downloader B failed, trying fallback mirrors...`, backupError.message);
+      }
+    }
+  } else {
+    console.error(`[${debugId}] *** CRITICAL: No RapidAPI key found in environment variables. Skipping premium downloaders. ***`);
+  }
+
+  // 2. Try public mirrors
+  try {
+    await downloadViaMirror(url, mirrorPath, debugId);
+    return mirrorPath;
+  } catch (mirrorError: any) {
+    console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
+  }
+
+  // 3. Local yt-dlp fallback (uses Android bypass + Cookies if available)
+  const ytdlpOptions: any = {
+    f: "bestaudio",
+    output: sourceTemplate,
+    noWarnings: true,
+    noCallHome: true,
+    addHeader: [
+      "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+      "Accept-Language:en-US,en;q=0.9"
+    ]
+  };
+
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  let cookieFilePath: string | null = null;
+  
+  if (cookiesEnv) {
+    cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
+    try {
+      fs.writeFileSync(cookieFilePath, cookiesEnv, "utf8");
+      ytdlpOptions.cookies = cookieFilePath;
+      console.log(`[${debugId}] Using YouTube cookies from environment`);
+    } catch (e: any) {
+      console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
+    }
+  } else {
+    ytdlpOptions.extractorArgs = "youtube:player_client=android,web";
+    console.log(`[${debugId}] No cookies found, using Android client bypass`);
+  }
+
+  try {
+    console.log(`[${debugId}] Downloading audio locally for: ${url}`);
+    await youtubedl(url, ytdlpOptions);
+
+    const files = fs.readdirSync(tempDir);
+    const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
+    
+    if (!downloadedFile) {
+      throw new Error("Download failed - local file not created");
+    }
+    
+    const sourcePath = path.join(tempDir, downloadedFile);
+    console.log(`[${debugId}] Local yt-dlp success. Size: ${fs.statSync(sourcePath).size} bytes`);
+    return sourcePath;
+  } finally {
+    if (cookieFilePath && fs.existsSync(cookieFilePath)) {
+      try { fs.unlinkSync(cookieFilePath); } catch (e) {}
+    }
+  }
 }
 
 async function runTool(command: string, args: string[], timeout = 30_000): Promise<{ stdout: string; stderr: string }> {
@@ -330,18 +598,14 @@ router.post("/identify", async (req, res) => {
   }
 
   const tempDir = "/tmp";
-  const sourcePath = path.join(tempDir, `tracktune_${debugId}_source.m4a`);
-  const tempFiles = [sourcePath];
+  const sourceTemplate = path.join(tempDir, `tracktune_${debugId}_source.%(ext)s`);
+  const tempFiles: string[] = [];
 
   try {
     console.log(`[${debugId}] Starting download for: ${url}`);
 
-    await youtubedl(url, {
-      f: "bestaudio",
-      output: sourcePath,
-      noWarnings: true,
-      noCallHome: true,
-    });
+    const sourcePath = await downloadAudio(url, sourceTemplate, debugId);
+    tempFiles.push(sourcePath);
 
     const fileSize = fs.statSync(sourcePath).size;
     console.log(`[${debugId}] Source audio file size: ${fileSize} bytes`);
