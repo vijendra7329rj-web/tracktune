@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HelpCircle, ChevronDown, ChevronUp, ArrowLeft, Sparkles, Music, Link, Upload, Mic } from 'lucide-react';
 
 const faqData = [
@@ -36,6 +36,10 @@ const faqData = [
 
 export default function FaqPage() {
   const [openIndex, setOpenIndex] = useState(null);
+
+  useEffect(() => {
+    document.title = "TrackTune FAQ - How to Find Songs from Video Links";
+  }, []);
 
   const toggleFaq = (index) => {
     setOpenIndex(openIndex === index ? null : index);
@@ -102,14 +106,6 @@ export default function FaqPage() {
           );
         })}
       </div>
-
-      {/* SEO Compliance Footer Note */}
-      <div className="mt-8 p-5 bg-[#13dfbf]/5 border border-[#13dfbf]/10 rounded-2xl text-center backdrop-blur-md">
-        <p className="text-[10px] text-gray-400 leading-relaxed">
-          Still have questions? Feel free to contact our support team at <span className="text-[#13dfbf] font-bold">support@tracktune.site</span>. Whether you are looking for a music finder, Google music finder, or even typing common typos like musice finder, TrackTune is the fastest online music finder AI to identify what is this song.
-        </p>
-      </div>
-
     </div>
   );
 }
