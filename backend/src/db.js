@@ -15,9 +15,12 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Create the connection pool
+// Create the connection pool with SSL enabled
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Create the Drizzle ORM instance with our schema
