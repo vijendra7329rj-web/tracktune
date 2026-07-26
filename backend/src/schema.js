@@ -1,30 +1,9 @@
 // ─────────────────────────────────────────────────────────
-// src/schema.js — Drizzle ORM table definitions
-// Defines: songs, history, trending
-// Ported from lib/db/src/schema/songs.ts (TypeScript → JS)
+// src/schema.js — Database Table Schemas with Drizzle
 // ─────────────────────────────────────────────────────────
-import {
-  pgTable,
-  text,
-  serial,
-  timestamp,
-  integer,
-  boolean,
-} from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 
-// ── Users table — stores user profiles from Google login ─
-export const usersTable = pgTable("users", {
-  id: serial("id").primaryKey(),
-  googleId: text("google_id").unique().notNull(),
-  email: text("email").unique().notNull(),
-  name: text("name").notNull().default(""),
-  picture: text("picture").notNull().default(""),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ── Songs table — stores every identified song ────────
+// ── Songs table — stores every identified song ──────────
 export const songsTable = pgTable("songs", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -42,7 +21,7 @@ export const songsTable = pgTable("songs", {
     .defaultNow(),
 });
 
-// ── History table — one row per identification request ─
+// ── History table — one row per identification request ──
 export const historyTable = pgTable("history", {
   id: serial("id").primaryKey(),
   songId: integer("song_id").notNull(),
@@ -72,6 +51,35 @@ export const trendingTable = pgTable("trending", {
   spotifyUrl: text("spotify_url").notNull().default(""),
   youtubeUrl: text("youtube_url").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ── Movies table — stores every identified movie ────────
+export const moviesTable = pgTable("movies", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  year: integer("year").notNull().default(0),
+  overview: text("overview").notNull().default(""),
+  posterUrl: text("poster_url").notNull().default(""),
+  directors: text("directors").notNull().default(""),
+  actors: text("actors").notNull().default(""),
+  genre: text("genre").notNull().default(""),
+  watchmodeId: text("watchmode_id").notNull().default(""),
+  watchLinks: text("watch_links").notNull().default("[]"), // stringified JSON list of streaming links
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ── Movie History table — one row per movie search ──────
+export const movieHistoryTable = pgTable("movie_history", {
+  id: serial("id").primaryKey(),
+  movieId: integer("movie_id").notNull(),
+  title: text("title").notNull(),
+  year: integer("year").notNull().default(0),
+  posterUrl: text("poster_url").notNull().default(""),
+  searchedAt: timestamp("searched_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
