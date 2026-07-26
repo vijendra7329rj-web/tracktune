@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
-import { identifySong, identifySongFromAudio, getAuthConfig, loginWithGoogle } from '../api';
-import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2, Upload, LogOut, User } from 'lucide-react';
+import { identifySong, identifySongFromAudio, getAuthConfig, loginWithGoogle, identifyMovie } from '../api';
+import { Search, Share2, Video, Sparkles, Mic, MicOff, Music, Volume2, Upload, LogOut, User, Film } from 'lucide-react';
 
 const searchMessages = [
   "Got it! Opening our ears... 🎧",
@@ -23,6 +23,7 @@ const micMessages = [
 
 export default function HomeScreen() {
   const [url, setUrl] = useState('');
+  const [searchMode, setSearchMode] = useState('music'); // 'music' or 'movie'
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -181,7 +182,7 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [loading, isRecording]);
 
-  // URL-based song identification
+  // URL-based identification
   const handleUrlSearch = async (searchUrl) => {
     const targetUrl = searchUrl || url;
     if (!targetUrl) return;
@@ -189,63 +190,61 @@ export default function HomeScreen() {
     setLoading(true);
     setError(null);
     try {
-      const data = await identifySong(targetUrl);
-      sessionStorage.setItem('current_song', JSON.stringify(data));
-      setLocation(`/result/${data.id}`);
+      if (searchMode === 'music') {
+        const data = await identifySong(targetUrl);
+        sessionStorage.setItem('current_song', JSON.stringify(data));
+        setLocation(`/result/${data.id}`);
+      } else {
+        const data = await identifyMovie(targetUrl);
+        sessionStorage.setItem('current_movie', JSON.stringify(data));
+        setLocation(`/movie-result/${data.id}`);
+      }
     } catch (err) {
-      setError(err.message || "We couldn't identify a song in this video. Please try another one.");
+      setError(err.message || `We couldn't identify a ${searchMode === 'music' ? 'song' : 'movie'} in this video. Please try another one.`);
       setLoading(false);
     }
   };
 
   // Microphone-based song identification (Shazam mode)
-  const startRecording = async () => {
+  const startMicRecording = async () => {
     setError(null);
     audioChunksRef.current = [];
     setRecordingSeconds(0);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const options = { mimeType: 'audio/webm' };
-      
-      let recorder;
-      try {
-        recorder = new MediaRecorder(stream, options);
-      } catch (e) {
-        recorder = new MediaRecorder(stream);
-      }
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
 
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
+      mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
-      recorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         
-        // Stop all audio tracks from stream to release mic icon on device
+        // Stop all track inputs to release microphone
         stream.getTracks().forEach(track => track.stop());
-
+        
+        // Send to backend
         setLoading(true);
+        setIsRecording(false);
         try {
           const data = await identifySongFromAudio(audioBlob);
           sessionStorage.setItem('current_song', JSON.stringify(data));
           setLocation(`/result/${data.id}`);
         } catch (err) {
-          setError(err.message || "We couldn't identify the song playing near you.");
-        } finally {
+          setError(err.message || "Could not identify the song. Make sure the music is clearly audible.");
           setLoading(false);
-          setIsRecording(false);
         }
       };
 
-      recorder.start();
+      // Start recording and count down 8 seconds
+      mediaRecorder.start();
       setIsRecording(true);
 
-      // 8-second capture window
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => {
           if (prev >= 8) {
@@ -260,202 +259,329 @@ export default function HomeScreen() {
       }, 1000);
 
     } catch (err) {
-      console.error("Microphone access blocked", err);
-      setError("Microphone access denied. Please check your browser permissions.");
+      setError("Please allow microphone access to identify music playing around you.");
+      console.error("Microphone access error:", err);
     }
   };
 
-  const stopRecording = () => {
+  const cancelRecording = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
+    setIsRecording(false);
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-between pb-8 relative overflow-hidden">
-      {/* Background blur circles */}
-      <div className="absolute top-[-20%] left-[-20%] w-[80%] h-[50%] bg-[#13dfbf]/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
-
-      {/* Top Navbar */}
-      <header className="w-full max-w-5xl px-6 py-6 flex justify-between items-center z-10">
-        <a href="/" className="flex items-center gap-2 group cursor-pointer">
-          <div className="w-10 h-10 bg-gradient-to-tr from-[#13dfbf] to-emerald-400 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(19,223,191,0.25)] transition-transform group-hover:scale-105">
-            <Music className="text-black" size={20} strokeWidth={2.5} />
-          </div>
-          <div>
-            <span className="text-lg font-black tracking-tighter text-white uppercase">TrackTune</span>
-            <span className="block text-[9px] text-[#13dfbf] font-bold tracking-widest uppercase mt-[-3px]">Song Finder</span>
-          </div>
-        </a>
-
-        <div className="flex items-center gap-3">
-          <a href="/faq" className="text-xs font-bold text-gray-400 hover:text-white uppercase tracking-wider transition-colors mr-2">FAQ</a>
-          {user ? (
-            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-3 pr-2 py-1.5">
-              {user.picture ? (
-                <img src={user.picture} alt={user.name} className="w-6 h-6 rounded-full border border-white/20" />
-              ) : (
-                <div className="w-6 h-6 rounded-full bg-[#13dfbf]/20 text-[#13dfbf] flex items-center justify-center text-[10px] font-bold">
-                  {user.name ? user.name[0] : <User size={12} />}
-                </div>
-              )}
-              <span className="text-xs font-bold text-gray-300 max-w-[80px] truncate hidden sm:inline">{user.name}</span>
-              <button 
-                onClick={handleSignOut}
-                className="p-1.5 hover:bg-white/10 rounded-full text-red-400 transition-colors cursor-pointer"
-                title="Sign Out"
-              >
-                <LogOut size={14} />
-              </button>
+    <div className="p-6 pt-12 min-h-screen flex flex-col items-center justify-between relative overflow-hidden">
+      
+      {/* 1. Loader Overlay for URL processing */}
+      {loading && (
+        <div className="absolute inset-0 bg-[#021110]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
+          <div className="relative mb-12 flex items-center justify-center">
+            <div className="absolute w-44 h-44 rounded-full border border-[#13dfbf]/20 animate-ping duration-1000"></div>
+            <div className="absolute w-36 h-36 rounded-full border border-[#13dfbf]/40 animate-pulse-ring"></div>
+            <div className="relative w-28 h-28 bg-[#042322] border-2 border-[#13dfbf] rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(19,223,191,0.4)] flex items-center justify-center p-1 animate-float">
+              <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-2xl" />
             </div>
-          ) : (
-            <button 
-              onClick={() => setShowAuthModal(true)}
-              className="bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-extrabold px-5 py-2.5 rounded-full tracking-wider transition-all hover:scale-105 cursor-pointer uppercase"
-            >
-              Sign In
-            </button>
-          )}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#13dfbf] to-transparent w-full animate-bounce mt-14"></div>
+          </div>
+          <div className="text-center max-w-sm px-4">
+            <h2 className="text-[#13dfbf] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
+              <Sparkles size={18} className="animate-spin duration-3000" /> TrackTune Active
+            </h2>
+            <div className="h-10 flex items-center justify-center">
+              <p className="text-white text-base font-semibold animate-pulse tracking-wide transition-all duration-300">
+                {searchMessages[activeMessageIndex]}
+              </p>
+            </div>
+            <div className="w-48 bg-white/5 h-1 rounded-full overflow-hidden mx-auto mt-6 border border-white/10">
+              <div className="h-full bg-gradient-to-r from-[#00c0a9] to-[#13dfbf] rounded-full animate-[shimmer_2s_infinite]" style={{ width: '80%' }}></div>
+            </div>
+          </div>
         </div>
-      </header>
+      )}
 
-      {/* Main Search Panel */}
-      <main className="w-full max-w-xl px-6 flex flex-col items-center flex-1 justify-center z-10 relative mt-4">
-        {loading ? (
-          /* Loading Animation state */
-          <div className="w-full flex flex-col items-center justify-center py-12 text-center">
-            <div className="relative mb-8">
-              <div className="w-20 h-20 border-4 border-[#13dfbf]/20 border-t-[#13dfbf] rounded-full animate-spin"></div>
-              <Music className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-[#13dfbf] animate-bounce" size={24} />
-            </div>
-            <h2 className="text-lg font-black text-white uppercase tracking-wider mb-2">Analyzing Audio</h2>
-            <p className="text-sm text-gray-400 animate-pulse font-medium">{searchMessages[activeMessageIndex]}</p>
+      {/* 2. Loader Overlay for Microphone Recording */}
+      {isRecording && (
+        <div className="absolute inset-0 bg-[#021110]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
+          <div className="relative mb-12 flex items-center justify-center">
+            {/* Multi-layered custom sonic ripple wave animation */}
+            <div className="absolute w-56 h-56 rounded-full bg-[#13dfbf]/5 animate-ping duration-3000"></div>
+            <div className="absolute w-44 h-44 rounded-full bg-[#13dfbf]/10 animate-pulse duration-1000"></div>
+            <div className="absolute w-32 h-32 rounded-full border border-[#13dfbf]/30 animate-pulse-ring"></div>
+            
+            {/* Glowing active microphone core button */}
+            <button 
+              onClick={cancelRecording}
+              className="relative w-28 h-28 bg-[#13dfbf] rounded-full shadow-[0_0_60px_rgba(19,223,191,0.6)] flex flex-col items-center justify-center hover:scale-95 active:scale-90 transition-all duration-300 border border-white/10"
+            >
+              <Volume2 size={36} className="text-black animate-bounce mb-1" />
+              <span className="text-[10px] text-black font-black uppercase tracking-wider">{8 - recordingSeconds}s Left</span>
+            </button>
           </div>
-        ) : isRecording ? (
-          /* Recording Microphone UI */
-          <div className="w-full flex flex-col items-center justify-center py-12 text-center">
-            <div className="relative mb-8 cursor-pointer" onClick={stopRecording}>
-              <div className="absolute inset-0 bg-[#13dfbf]/20 rounded-full animate-ping"></div>
-              <div className="absolute inset-[-15px] bg-[#13dfbf]/10 rounded-full animate-pulse-ring"></div>
-              <div className="relative w-28 h-28 bg-gradient-to-tr from-red-500 to-pink-600 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(239,68,68,0.45)]">
-                <MicOff className="text-white animate-pulse" size={40} />
-              </div>
+          
+          <div className="text-center max-w-sm px-4">
+            <h2 className="text-[#13dfbf] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
+              Listening to Song...
+            </h2>
+            <div className="h-10 flex items-center justify-center">
+              <p className="text-white text-base font-semibold animate-pulse tracking-wide">
+                {micMessages[activeMessageIndex] || "Listening carefully..."}
+              </p>
             </div>
-            <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Listening...</h2>
-            <p className="text-sm text-[#13dfbf] font-bold tracking-widest mb-4">0:0{recordingSeconds} / 0:08</p>
-            <p className="text-xs text-gray-400 italic max-w-xs mx-auto leading-relaxed">{micMessages[activeMessageIndex]}</p>
+            
+            {/* Visualizer micro bars */}
+            <div className="flex items-center justify-center gap-1.5 mt-8 h-8">
+              <div className="w-1.5 h-4 bg-[#13dfbf] rounded-full animate-[visualizer_0.6s_ease-in-out_infinite_alternate]"></div>
+              <div className="w-1.5 h-7 bg-[#13dfbf] rounded-full animate-[visualizer_0.8s_ease-in-out_infinite_alternate_0.1s]"></div>
+              <div className="w-1.5 h-5 bg-[#13dfbf] rounded-full animate-[visualizer_0.5s_ease-in-out_infinite_alternate_0.2s]"></div>
+              <div className="w-1.5 h-8 bg-[#13dfbf] rounded-full animate-[visualizer_0.9s_ease-in-out_infinite_alternate_0.3s]"></div>
+              <div className="w-1.5 h-3 bg-[#13dfbf] rounded-full animate-[visualizer_0.7s_ease-in-out_infinite_alternate_0.4s]"></div>
+            </div>
+
+            <button 
+              onClick={cancelRecording}
+              className="mt-12 text-xs font-bold text-gray-400 hover:text-red-400 bg-white/5 border border-white/10 px-5 py-2.5 rounded-full transition-all uppercase tracking-widest"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* User Session Controller */}
+      <div className="absolute top-4 right-4 z-40">
+        {user ? (
+          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-full pl-2 pr-3.5 py-1.5 backdrop-blur-md">
+            {user.picture ? (
+              <img src={user.picture} alt={user.name} className="w-6 h-6 rounded-full border border-[#13dfbf]/40 object-cover" />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-[#042322] border border-[#13dfbf]/40 flex items-center justify-center">
+                <User size={12} className="text-[#13dfbf]" />
+              </div>
+            )}
+            <span className="text-[10px] font-bold text-gray-300 max-w-[80px] truncate">{user.name || user.email}</span>
+            <button 
+              onClick={handleSignOut}
+              className="text-gray-400 hover:text-red-400 transition-colors p-1"
+              title="Sign Out"
+            >
+              <LogOut size={12} />
+            </button>
           </div>
         ) : (
-          /* Default UI (Search Box or Microphone trigger) */
-          <div className="w-full flex flex-col items-center">
-            <div className="text-center mb-8 px-4">
-              <span className="inline-flex items-center gap-1 bg-[#13dfbf]/10 border border-[#13dfbf]/20 px-3 py-1 rounded-full text-[10px] font-bold text-[#13dfbf] uppercase tracking-widest mb-3">
-                <Sparkles size={10} /> AI Song Identifier
-              </span>
-              <h1 className="text-3xl sm:text-4xl font-black text-white leading-none tracking-tight mb-3">
-                Find the Song Inside <br className="hidden sm:inline" />
-                Any Video Link.
-              </h1>
-              <p className="text-sm text-gray-400 max-w-sm mx-auto font-medium">
-                Paste an Instagram Reel, YouTube Short, or TikTok link to identify the music.
+          <button 
+            onClick={() => setShowAuthModal(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-[#00c0a9] to-[#13dfbf] text-black font-extrabold px-4 py-2 rounded-full text-[10px] uppercase tracking-wider shadow-md hover:scale-105 active:scale-95 transition-all duration-300 border border-white/10"
+          >
+            <User size={12} /> Sign In
+          </button>
+        )}
+      </div>
+
+      {/* Main Contents */}
+      <div className="w-full flex-1 flex flex-col items-center justify-between py-6">
+        
+        {/* Header and Branding */}
+        <div className="flex flex-col items-center mt-2">
+          <div className="relative group mb-4">
+            <div className="absolute inset-0 bg-[#13dfbf]/20 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
+            <div className="relative w-16 h-16 bg-[#042322]/80 border border-[#13dfbf]/30 rounded-2xl overflow-hidden shadow-md flex items-center justify-center p-0.5">
+              <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-xl" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-black text-center mb-1 text-white tracking-tight">
+            Track<span className="text-[#13dfbf]">Tune</span>
+          </h1>
+          <p className="text-gray-400 text-center text-[10px] tracking-wide uppercase">
+            Free Online Music Finder AI & Song Identifier
+          </p>
+        </div>
+
+        {/* Tab Toggle for Music vs Movie */}
+        <div className="w-full flex bg-[#042322] border border-[#13dfbf]/20 rounded-full p-1 max-w-xs mt-2 relative z-20">
+          <button
+            onClick={() => setSearchMode('music')}
+            className={`flex-1 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+              searchMode === 'music'
+                ? 'bg-[#13dfbf] text-black shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            🎵 Song Finder
+          </button>
+          <button
+            onClick={() => setSearchMode('movie')}
+            className={`flex-1 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+              searchMode === 'movie'
+                ? 'bg-[#13dfbf] text-black shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            🎬 Movie Finder
+          </button>
+        </div>
+
+        {/* Shared Error Banner */}
+        {error && (
+          <div className="w-full mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] text-center font-medium leading-relaxed relative z-20">
+            {error}
+          </div>
+        )}
+
+        {/* 1. TOP: Input Card (Social Share / Manual Paste) */}
+        <div className="w-full glass-card p-5 mt-4 relative z-20">
+          <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#13dfbf] uppercase tracking-widest">
+            {searchMode === 'music' ? <Share2 size={14} /> : <Film size={14} />} 
+            {searchMode === 'music' ? "Identify from Social Media" : "Identify Movie from Video Link"}
+          </div>
+          
+          <div className="relative">
+            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+              <Video size={16} className="text-gray-500" />
+            </div>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={searchMode === 'music' ? "Paste Instagram, YouTube, or TikTok link..." : "Paste movie edit / scene clip link..."}
+              className="w-full bg-black/30 border border-[#13dfbf]/20 rounded-xl py-3.5 pl-12 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-[#13dfbf] focus:ring-1 focus:ring-[#13dfbf]/20 transition-all text-xs"
+            />
+          </div>
+          
+          <button
+            onClick={() => handleUrlSearch()}
+            disabled={!url || loading}
+            className="w-full mt-3 bg-[#042322] border border-[#13dfbf]/30 hover:bg-[#13dfbf]/10 text-white font-extrabold py-3.5 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs tracking-wider uppercase"
+          >
+            <Search size={14} /> {searchMode === 'music' ? "Search Video Link" : "Identify Movie Scene"}
+          </button>
+        </div>
+
+        {searchMode === 'music' && (
+          <>
+            {/* 2. MIDDLE: Dynamic Interactive Central Listening Hub (Shazam Mode) */}
+            <div className="flex flex-col items-center justify-center my-6 py-2 relative">
+              <div className="absolute w-60 h-60 rounded-full border border-[#13dfbf]/5 animate-pulse duration-3000"></div>
+              
+              <button 
+                onClick={startMicRecording}
+                className="relative w-32 h-32 bg-gradient-to-tr from-[#00c0a9] to-[#13dfbf] rounded-full shadow-[0_0_50px_rgba(19,223,191,0.25)] flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 group border-4 border-[#021110]"
+              >
+                {/* Outer glowing ring */}
+                <span className="absolute inset-0 rounded-full border-2 border-white/20 scale-100 group-hover:scale-110 transition-transform duration-500"></span>
+                
+                <Mic size={36} className="text-black mb-1 group-hover:rotate-12 transition-transform duration-300" />
+                <span className="text-[10px] font-black text-black uppercase tracking-wider">Tap to Listen</span>
+              </button>
+              
+              <p className="text-[#13dfbf] text-[10px] font-bold mt-4 flex items-center gap-1.5 bg-[#13dfbf]/5 px-3 py-1 rounded-full border border-[#13dfbf]/10">
+                <Volume2 size={10} className="animate-pulse" /> Identify music playing nearby
               </p>
             </div>
 
-            {/* Input Form */}
-            <div className="w-full glass-card p-2 rounded-2xl flex items-center gap-2 border border-white/10 shadow-2xl focus-within:border-[#13dfbf]/40 transition-all duration-300 mb-4">
-              <div className="pl-3 text-gray-500">
-                <Video size={18} />
+            {/* 3. BOTTOM: Media File Upload Card */}
+            <div className="w-full glass-card p-5 relative z-20">
+              <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#13dfbf] uppercase tracking-widest">
+                <Upload size={14} /> Identify from Media File
               </div>
-              <input
-                type="url"
-                placeholder="Paste Instagram, YouTube, or TikTok URL..."
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleUrlSearch()}
-                className="flex-1 bg-transparent border-none outline-none py-3 text-sm text-white placeholder-gray-500 min-w-0"
-              />
-              <button
-                onClick={() => handleUrlSearch()}
-                disabled={!url.trim()}
-                className="bg-[#13dfbf] disabled:opacity-40 disabled:cursor-not-allowed text-black font-extrabold text-xs px-5 py-3 rounded-xl flex items-center gap-2 shadow-[0_4px_15px_rgba(19,223,191,0.2)] hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(19,223,191,0.35)] transition-all cursor-pointer uppercase tracking-wider"
-              >
-                <Search size={14} strokeWidth={2.5} /> Search
-              </button>
-            </div>
-
-            <div className="text-xs text-gray-500 font-bold uppercase tracking-widest my-4">OR</div>
-
-            {/* Tap to Listen Microphone Box */}
-            <button 
-              onClick={startRecording}
-              className="group relative w-36 h-36 bg-gradient-to-tr from-[#13dfbf] to-emerald-400 rounded-full flex flex-col items-center justify-center shadow-[0_8px_30px_rgba(19,223,191,0.25)] hover:scale-105 transition-all duration-300 border-4 border-white/5 cursor-pointer"
-            >
-              <div className="absolute inset-0 bg-[#13dfbf]/20 rounded-full blur-xl opacity-50 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <Mic className="text-black group-hover:scale-110 transition-transform duration-300 mb-1" size={32} strokeWidth={2} />
-              <span className="text-[10px] text-black font-extrabold uppercase tracking-widest">Tap to Listen</span>
-            </button>
-
-            {/* File Upload Selector */}
-            <div className="mt-8 text-center">
+              
               <input 
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileUpload} 
-                accept="audio/*,video/*" 
+                accept="video/*,audio/*" 
                 className="hidden" 
               />
-              <button 
+              
+              <button
                 onClick={() => fileInputRef.current.click()}
-                className="inline-flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-white uppercase tracking-wider transition-colors cursor-pointer"
+                className="w-full bg-black/30 border border-[#13dfbf]/20 hover:border-[#13dfbf]/50 hover:bg-[#13dfbf]/5 text-white font-extrabold py-4 rounded-xl transition-all duration-300 flex flex-col items-center justify-center gap-1.5 text-xs tracking-wider uppercase group"
               >
-                <Upload size={14} /> Or Upload Audio/Video File
+                <Upload size={20} className="text-[#13dfbf] group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-gray-400 group-hover:text-white transition-colors text-[11px]">Choose Video or Audio file</span>
+                <span className="text-[8px] text-gray-500 lowercase normal-case tracking-normal">Supports MP4, MP3, WAV, etc.</span>
               </button>
             </div>
-          </div>
+          </>
         )}
 
-        {/* Global Error Display */}
-        {error && (
-          <div className="w-full mt-6 bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center text-xs text-red-400 font-medium leading-relaxed animate-shake">
-            {error}
-          </div>
-        )}
-      </main>
-
-      {/* Sticky Bottom Footer */}
-      <footer className="w-full max-w-xl text-center px-6 mt-6 z-10">
-        <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
-          Free searches are unlimited. By using TrackTune you agree to our <br />
-          <a href="/terms" className="text-gray-400 hover:text-[#13dfbf] transition-colors">Terms of Service</a> and <a href="/privacy" className="text-gray-400 hover:text-[#13dfbf] transition-colors">Privacy Policy</a>.
-        </p>
-      </footer>
-
-      {/* Google Login / Auth Modal Popup */}
-      {showAuthModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 z-50 animate-fade-in">
-          <div className="bg-[#0f0f15] border border-white/10 w-full max-w-md p-8 rounded-3xl shadow-2xl relative text-center">
-            <button 
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
-            >
-              ✕
-            </button>
-            <div className="w-12 h-12 bg-[#13dfbf]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="text-[#13dfbf]" size={24} />
-            </div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">Sign In with Google</h3>
-            <p className="text-xs text-gray-400 leading-relaxed mb-6">
-              TrackTune is completely free! We use Google Sign-in to protect our servers and save your search history securely.
+        {/* About / How It Works Text Section for AdSense Content Compliance */}
+        {searchMode === 'movie' ? (
+          <section className="w-full mt-10 p-6 bg-[#0c1e1c]/40 border border-[#13dfbf]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left">
+            <h2 className="text-[#13dfbf] text-xs font-black uppercase tracking-wider mb-3">
+              About TrackTune — The Advanced AI Movie Finder Online
+            </h2>
+            <p className="text-gray-300 text-[10px] leading-relaxed mb-4">
+              TrackTune Movie Finder is a free AI-powered web tool designed to identify what movie or TV show is playing in social media video clips, Instagram Reels, or YouTube Shorts. Using Google Gemini Vision AI, the application analyzes visual elements, actor appearances, settings, and dialogue to pinpoint the title in seconds.
             </p>
-            <div className="flex justify-center mb-2">
-              <div id="google-signin-button"></div>
+            <h3 className="text-white text-xs font-bold mb-2">Find Where to Watch Movies (Netflix, Prime, Hotstar)</h3>
+            <p className="text-gray-400 text-[10px] leading-relaxed">
+              Once TrackTune recognizes the scene, it fetches streaming platform details. You can see direct streaming availability and links to watch the movie on Netflix, Amazon Prime Video, Disney+ Hotstar, and other services in your region instantly.
+            </p>
+          </section>
+        ) : (
+          <section className="w-full mt-10 p-6 bg-[#0c1e1c]/40 border border-[#13dfbf]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left">
+            <h2 className="text-[#13dfbf] text-xs font-black uppercase tracking-wider mb-3">
+              About TrackTune — The Advanced AI Music Finder Online
+            </h2>
+            <p className="text-gray-300 text-[10px] leading-relaxed mb-4">
+              TrackTune is a free online music finder designed to identify what is this song playing in social media videos, microphone captures, or local media files. Using advanced music finder AI and acoustic fingerprinting algorithms, TrackTune helps you search, discover, and trace the background music of any video link in seconds.
+            </p>
+            <h3 className="text-white text-xs font-bold mb-2">How to Use the Video Link Song Finder</h3>
+            <p className="text-gray-400 text-[10px] leading-relaxed mb-4">
+              If you hear a song in an Instagram Reel, YouTube Short, or TikTok video, simply copy the URL and paste it into our search box above. TrackTune acts as a direct song finder by video link, extracting a high-quality audio sample and identifying the exact artist and track name without needing a browser music finder extension or downloading a separate music finder app.
+            </p>
+            <h3 className="text-white text-xs font-bold mb-2">Music Finder by Sound or File Upload</h3>
+            <p className="text-gray-400 text-[10px] leading-relaxed">
+              Need to identify music playing nearby? Click the central microphone button to use TrackTune as a music finder by sound or voice. You can also upload local video and audio files (like MP4, MP3, or WAV) to scan for music. TrackTune will process the sound waves and provide direct search redirection links to Spotify and YouTube.
+            </p>
+          </section>
+        )}
+
+        {/* Footer for AdSense Compliance */}
+        <footer className="w-full mt-8 pb-4 text-center text-[10px] text-gray-500 font-medium relative z-20">
+          <div className="flex justify-center gap-4 mb-2">
+            <a href="/privacy" className="hover:text-[#13dfbf] transition-colors">Privacy Policy</a>
+            <span className="text-gray-700">•</span>
+            <a href="/faq" className="hover:text-[#13dfbf] transition-colors">FAQ & Help</a>
+            <span className="text-gray-700">•</span>
+            <a href="/terms" className="hover:text-[#13dfbf] transition-colors">Terms of Service</a>
+          </div>
+          <p>© {new Date().getFullYear()} TrackTune. All Rights Reserved.</p>
+        </footer>
+
+      </div>
+
+      {/* 3. Google Sign-In Prompt Modal */}
+      {showAuthModal && (
+        <div className="absolute inset-0 bg-[#021110]/90 z-50 flex items-center justify-center p-6 backdrop-blur-md transition-all duration-300 animate-fade-in">
+          <div className="glass-card w-full max-w-sm p-6 text-center border border-[#13dfbf]/30 relative flex flex-col items-center justify-center shadow-[0_0_80px_rgba(19,223,191,0.2)]">
+            <div className="w-16 h-16 bg-[#042322] border-2 border-[#13dfbf] rounded-2xl flex items-center justify-center mb-4 shadow-lg animate-float">
+              <Sparkles size={28} className="text-[#13dfbf] animate-pulse" />
             </div>
-            <p className="text-[10px] text-gray-500 font-medium">We never post anything or share your personal data.</p>
+            
+            <h3 className="text-white text-lg font-black tracking-tight mb-2">Unlock Unlimited Discovery</h3>
+            <p className="text-gray-400 text-xs leading-relaxed mb-6">
+              Create an account or sign in with Google to save your song search history, share favorites, and get unlimited identifications!
+            </p>
+
+            {/* Google Sign-in API Button Container */}
+            <div className="w-full flex justify-center mb-4">
+              <div id="google-signin-button" className="inline-block"></div>
+            </div>
+
+            <button
+              onClick={() => setShowAuthModal(false)}
+              className="text-[10px] text-gray-500 hover:text-gray-300 font-extrabold uppercase tracking-widest transition-all mt-4 px-4 py-2"
+            >
+              Maybe Later
+            </button>
           </div>
         </div>
       )}
+
     </div>
   );
 }
