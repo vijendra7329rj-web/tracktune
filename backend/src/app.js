@@ -20,6 +20,7 @@ import historyRouter from "./routes/history.js";
 import trendingRouter from "./routes/trending.js";
 import songsRouter from "./routes/songs.js";
 import authRouter from "./routes/auth.js";
+import identifyMovieRouter from "./routes/identify-movie.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,6 +62,7 @@ app.use("/api", historyRouter);
 app.use("/api", trendingRouter);
 app.use("/api", songsRouter);
 app.use("/api", authRouter);
+app.use("/api", identifyMovieRouter);
 
 // ── Top-level Health Checks (Ensures Render health checks always succeed) ──
 app.get("/healthz", (req, res) => res.json({ status: "ok" }));
