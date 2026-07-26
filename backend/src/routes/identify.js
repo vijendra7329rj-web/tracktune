@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { songsTable, historyTable } from "../schema.js";
 import { eq, and } from "drizzle-orm";
-import defaultYoutubedl, { create as createYoutubeDl } from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -11,17 +10,44 @@ import FormData from "form-data";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
-const getBinaryPath = () => {
-  if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
-  if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
-  return null;
-};
-
-const binaryPath = getBinaryPath();
-const youtubedl = binaryPath ? createYoutubeDl(binaryPath) : defaultYoutubedl;
-
 const router = Router();
 const execFileAsync = promisify(execFile);
+
+// Custom transparent child_process wrapper to invoke yt-dlp CLI
+async function youtubedl(url, options) {
+  const getBinaryPath = () => {
+    if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
+    if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
+    // Check standard node_modules paths
+    const nodeModulesPath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp");
+    if (fs.existsSync(nodeModulesPath)) return nodeModulesPath;
+    const nodeModulesExePath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp.exe");
+    if (fs.existsSync(nodeModulesExePath)) return nodeModulesExePath;
+    return "yt-dlp";
+  };
+
+  const binary = getBinaryPath();
+  const args = [url];
+  
+  if (options.output) args.push("--output", options.output);
+  if (options.extractAudio) args.push("--extract-audio");
+  if (options.audioFormat) args.push("--audio-format", options.audioFormat);
+  if (options.noWarnings) args.push("--no-warnings");
+  if (options.noCallHome) args.push("--no-call-home");
+  if (options.cookies) args.push("--cookies", options.cookies);
+  if (options.addHeader) {
+    for (const header of options.addHeader) {
+      args.push("--add-header", header);
+    }
+  }
+
+  console.log(`[EXEC] Running command: ${binary} ${args.join(" ")}`);
+  
+  return execFileAsync(binary, args, {
+    timeout: 60000,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+}
 
 const SAMPLE_SECONDS = 4;
 const MAX_ATTEMPTS = Number(process.env.MAX_RECOGNITION_ATTEMPTS || 8);
@@ -60,52 +86,7 @@ function isUnknownValue(value) {
   return normalized === "" || normalized === "unknown" || normalized === "unknown title" || normalized === "unknown artist";
 }
 
-function uniqueKey(match) {
-  return `${match.title.toLowerCase()}::${match.artist.toLowerCase()}`;
-}
-
-function getSpotifyUrl(spotifyId) {
-  return spotifyId ? `https://open.spotify.com/track/${spotifyId}` : "";
-}
-
-function getYoutubeUrl(youtubeId) {
-  return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
-}
-
-function getYoutubeId(url) {
-  if (!url) return null;
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
-}
-
-async function runTool(command, args, timeout = 30000) {
-  const result = await execFileAsync(command, args, {
-    timeout,
-    maxBuffer: 1024 * 1024 * 10,
-    encoding: "utf8",
-  });
-  return {
-    stdout: String(result.stdout || ""),
-    stderr: String(result.stderr || ""),
-  };
-}
-
-async function getDurationSeconds(filePath) {
-  try {
-    const { stdout } = await runTool(
-      FFPROBE_PATH,
-      ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", filePath],
-      20000,
-    );
-    const duration = Number.parseFloat(stdout.trim());
-    return Number.isFinite(duration) && duration > 0 ? duration : SAMPLE_SECONDS;
-  } catch (error) {
-    console.warn("ffprobe duration failed, falling back to 10 seconds", error);
-    return SAMPLE_SECONDS;
-  }
-}
-
+// deduplicate nearby numbers
 function dedupeStarts(starts) {
   const rounded = starts.map(s => Math.round(s));
   return [...new Set(rounded)];
