@@ -466,7 +466,7 @@ router.post("/identify-movie", async (req, res) => {
     });
 
   } catch (error) {
-    console.error(`[${debugId}] Movie Identification Error:`, error);
+    console.error(`[${debugId}] Movie Identification Error:`, error.response?.data || error.message);
     let message = "TrackTune could not process this movie clip right now. Please try again.";
     if (error?.message?.includes("GEMINI_API_KEY")) {
       message = "Server is missing Gemini AI configuration.";
