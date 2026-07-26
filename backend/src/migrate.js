@@ -12,7 +12,6 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-// Create connection pool with SSL enabled
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -109,7 +108,11 @@ async function migrate() {
 
   try {
     await client.query(CREATE_TABLES_SQL);
-    console.log("✅ All tables created (or already exist).");
+    await client.query(`
+      ALTER TABLE movies ADD COLUMN IF NOT EXISTS backdrop_url TEXT NOT NULL DEFAULT '';
+      ALTER TABLE movies ADD COLUMN IF NOT EXISTS trailer_url TEXT NOT NULL DEFAULT '';
+    `);
+    console.log("✅ All tables created and updated.");
   } catch (err) {
     console.error("❌ Migration failed:", err);
     process.exit(1);
