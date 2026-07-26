@@ -607,4 +607,5 @@ export default function HomeScreen() {
       )}
 
     </div>
-  );,TargetFile:c:\Users\ASUS\Downloads\tracktune\tracktune\frontend\src\pages\HomeScreen.jsx,TargetLintErrorIds:[],toolAction:Replacing color variables with build-friendly format in HomeScreen.jsx,toolSummary:Remove syntax fallbacks in HomeScreen.jsx}
+  );
+}
