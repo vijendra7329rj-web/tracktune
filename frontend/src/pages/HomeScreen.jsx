@@ -152,18 +152,14 @@ export default function HomeScreen() {
 
   // Dynamic Theme Color Controller
   useEffect(() => {
-    const root = document.documentElement;
     if (searchMode === 'movie') {
-      root.style.setProperty('--theme-bg', '#090312');
-      root.style.setProperty('--theme-primary', '#c084fc');
-      root.style.setProperty('--theme-primary-dark', '#7c3aed');
-      root.style.setProperty('--theme-deep', '#3b0764');
+      document.body.classList.add('theme-movie');
     } else {
-      root.style.setProperty('--theme-bg', '#021110');
-      root.style.setProperty('--theme-primary', '#13dfbf');
-      root.style.setProperty('--theme-primary-dark', '#00c0a9');
-      root.style.setProperty('--theme-deep', '#043330');
+      document.body.classList.remove('theme-movie');
     }
+    return () => {
+      document.body.classList.remove('theme-movie');
+    };
   }, [searchMode]);
 
   const handleFileUpload = async (event) => {
