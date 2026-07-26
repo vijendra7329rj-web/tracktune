@@ -21,6 +21,16 @@ const pool = new Pool({
 });
 
 const CREATE_TABLES_SQL = `
+-- Users table: stores user profiles from Google login
+CREATE TABLE IF NOT EXISTS users (
+  id              SERIAL PRIMARY KEY,
+  google_id       TEXT NOT NULL UNIQUE,
+  email           TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL DEFAULT '',
+  picture         TEXT NOT NULL DEFAULT '',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Songs table: stores every identified song
 CREATE TABLE IF NOT EXISTS songs (
   id              SERIAL PRIMARY KEY,
