@@ -301,7 +301,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
 
   const prompt = "Identify the movie or TV show title and release year from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"]}. If you cannot identify it, set title to empty string and year and confidence to 0.";
 
-  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
     contents: [
       {
         parts: [
