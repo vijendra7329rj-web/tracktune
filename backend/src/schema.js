@@ -1,8 +1,16 @@
 // ─────────────────────────────────────────────────────────
 // src/schema.js — Drizzle ORM table definitions
-// Defines: songs, history, trending, movies, users
+// Defines: songs, history, trending
+// Ported from lib/db/src/schema/songs.ts (TypeScript → JS)
 // ─────────────────────────────────────────────────────────
-import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  timestamp,
+  integer,
+  boolean,
+} from "drizzle-orm/pg-core";
 
 // ── Users table — stores user profiles from Google login ─
 export const usersTable = pgTable("users", {
@@ -80,6 +88,8 @@ export const moviesTable = pgTable("movies", {
   genre: text("genre").notNull().default(""),
   watchmodeId: text("watchmode_id").notNull().default(""),
   watchLinks: text("watch_links").notNull().default("[]"), // stringified JSON list of streaming links
+  backdropUrl: text("backdrop_url").notNull().default(""),
+  trailerUrl: text("trailer_url").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
