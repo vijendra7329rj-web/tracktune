@@ -137,11 +137,80 @@ async function downloadViaMirror(url, targetPath, debugId) {
   throw new Error(`All download mirrors failed. Last error: ${lastError?.message}`);
 }
 
+async function downloadViaRapidAPI(url, targetPath, debugId) {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) {
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+  }
+
+  console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
+  
+  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
+    url: url
+  }, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com"
+    },
+    timeout: 15000
+  });
+
+  const medias = response.data?.medias || [];
+  // Prioritize video/MP4 format over audio so we can extract frames!
+  const videoMedia = medias.find(m => m.type === "video" || m.extension === "mp4") || medias[0];
+  const downloadUrl = videoMedia?.url;
+
+  if (!downloadUrl) {
+    throw new Error("RapidAPI response did not contain a valid download URL.");
+  }
+
+  console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+
+  const fileResponse = await axios({
+    method: "get",
+    url: downloadUrl,
+    responseType: "stream",
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
+  });
+
+  const writer = fs.createWriteStream(targetPath);
+  fileResponse.data.pipe(writer);
+
+  await new Promise((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  console.log(`[${debugId}] RapidAPI file saved. Size: ${fs.statSync(targetPath).size} bytes`);
+  return true;
+}
+
 async function downloadVideo(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp4`);
 
-  // Try public mirrors first (to avoid local IP blocks)
+  // Try RapidAPI first for high reliability (Instagram, TikTok bypass)
+  try {
+    const hasApiKey = !!process.env.RAPIDAPI_KEY;
+    if (hasApiKey) {
+      await downloadViaRapidAPI(url, mirrorPath, debugId);
+      return mirrorPath;
+    } else {
+      console.warn(`[${debugId}] RAPIDAPI_KEY not found. Skipping RapidAPI.`);
+    }
+  } catch (err) {
+    console.warn(`[${debugId}] RapidAPI downloader failed, trying Cobalt mirror...`, err.message);
+  }
+
+  // Try public mirrors next (to avoid local IP blocks)
   try {
     await downloadViaMirror(url, mirrorPath, debugId);
     return mirrorPath;
