@@ -153,29 +153,26 @@ async function downloadViaMirror(url, targetPath, debugId) {
 async function downloadViaRapidAPI(url, targetPath, debugId) {
   const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!apiKey) {
-    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+    throw new Error("Missing RAPIDAPI_KEY");
   }
 
-  console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
-  
-  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
-    url: url
-  }, {
+  console.log(`[${debugId}] Downloading video via RapidAPI downloader service...`);
+  const options = {
+    method: 'GET',
+    url: 'https://social-media-video-downloader.p.rapidapi.com/api/v1/social/autolink',
+    params: { url: url },
     headers: {
-      "Content-Type": "application/json",
-      "x-rapidapi-key": apiKey,
-      "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com"
+      'x-rapidapi-key': apiKey,
+      'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
     },
     timeout: 15000
-  });
+  };
 
-  const medias = response.data?.medias || [];
-  // Prioritize video/MP4 format over audio so we can extract frames!
-  const videoMedia = medias.find(m => m.type === "video" || m.extension === "mp4") || medias[0];
-  const downloadUrl = videoMedia?.url;
-
+  const response = await axios.request(options);
+  const downloadUrl = response.data?.links?.[0]?.link || response.data?.url;
+  
   if (!downloadUrl) {
-    throw new Error("RapidAPI response did not contain a valid download URL.");
+    throw new Error("RapidAPI response did not contain a valid media download URL.");
   }
 
   console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
@@ -280,7 +277,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
     throw new Error("TrackTune is missing the GEMINI_API_KEY environment variable.");
   }
 
-  console.log(`[${debugId}] Calling Gemini API...`);
+  console.log(`[${debugId}] Calling Gemini 1.5 Flash API...`);
   const imageParts = [];
 
   for (const imgPath of imagePaths) {
@@ -299,7 +296,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
     throw new Error("Could not extract any image frames from the video for AI analysis.");
   }
 
-  const prompt = "Identify the movie or TV show title and release year from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"]}. If you cannot identify it, set title to empty string and year and confidence to 0.";
+  const prompt = "Identify the movie or TV show title, release year, and estimate the scene timestamp (e.g. '01:23:45' or 'around 45 mins') from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"], \"scene_timestamp\": \"estimated timestamp or scene description\"}. If you cannot identify it, set title to empty string and year, confidence and scene_timestamp to 0.";
 
   const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
     contents: [
@@ -331,7 +328,7 @@ async function getWatchmodeStreamingData(title, year, debugId) {
   const apiKey = process.env.WATCHMODE_API_KEY ? process.env.WATCHMODE_API_KEY.trim() : null;
   if (!apiKey) {
     console.warn(`[${debugId}] WATCHMODE_API_KEY is not set. Skipping streaming links.`);
-    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
+    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
   }
 
   try {
@@ -351,7 +348,7 @@ async function getWatchmodeStreamingData(title, year, debugId) {
     
     if (!match) {
       console.warn(`[${debugId}] No matching title found in Watchmode.`);
-      return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
+      return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
     }
 
     const watchmodeId = match.id;
@@ -385,11 +382,13 @@ async function getWatchmodeStreamingData(title, year, debugId) {
       watchmodeId: String(watchmodeId),
       watchLinks: JSON.stringify(watchLinks),
       poster: detailsRes.data?.poster || "",
-      plot: detailsRes.data?.plot_overview || ""
+      plot: detailsRes.data?.plot_overview || "",
+      backdrop: detailsRes.data?.backdrop || "",
+      trailer: detailsRes.data?.trailer || ""
     };
   } catch (err) {
     console.error(`[${debugId}] Watchmode API call failed:`, err.message);
-    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
+    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
   }
 }
 
@@ -454,6 +453,8 @@ router.post("/identify-movie", async (req, res) => {
         genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
         watchmodeId: movieDetails.watchmodeId,
         watchLinks: movieDetails.watchLinks,
+        backdropUrl: movieDetails.backdrop || "",
+        trailerUrl: movieDetails.trailer || "",
       }).returning();
       
       movie = newMovie;
@@ -475,6 +476,10 @@ router.post("/identify-movie", async (req, res) => {
       posterUrl: movie.posterUrl,
       genre: movie.genre,
       watchLinks: JSON.parse(movie.watchLinks),
+      backdropUrl: movie.backdropUrl,
+      trailerUrl: movie.trailerUrl,
+      confidence: geminiResult.confidence || 0,
+      sceneTimestamp: geminiResult.scene_timestamp || "Unknown",
       debugId
     });
 
