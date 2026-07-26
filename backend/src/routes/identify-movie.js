@@ -13,6 +13,19 @@ import { promisify } from "util";
 const router = Router();
 const execFileAsync = promisify(execFile);
 
+// Diagnostic log to see what models this API key can access
+const testKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
+if (testKey) {
+  console.log(`🔍 DIAGNOSTIC: GEMINI_API_KEY is configured. Length: ${testKey.length}. Starts with AIzaSy: ${testKey.startsWith("AIzaSy")}`);
+  axios.get(`https://generativelanguage.googleapis.com/v1/models?key=${testKey}`)
+    .then(res => {
+      console.log("🔍 DIAGNOSTIC: Available Gemini Models:", res.data?.models?.map(m => m.name));
+    })
+    .catch(err => {
+      console.error("❌ DIAGNOSTIC: Failed to list models:", err.response?.data || err.message);
+    });
+}
+
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
@@ -267,7 +280,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
     throw new Error("TrackTune is missing the GEMINI_API_KEY environment variable.");
   }
 
-  console.log(`[${debugId}] Calling Gemini 1.5 Flash API...`);
+  console.log(`[${debugId}] Calling Gemini API...`);
   const imageParts = [];
 
   for (const imgPath of imagePaths) {
@@ -288,7 +301,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
 
   const prompt = "Identify the movie or TV show title and release year from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"]}. If you cannot identify it, set title to empty string and year and confidence to 0.";
 
-  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     contents: [
       {
         parts: [
