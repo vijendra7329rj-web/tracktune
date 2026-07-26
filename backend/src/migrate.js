@@ -66,6 +66,31 @@ CREATE TABLE IF NOT EXISTS trending (
   youtube_url     TEXT NOT NULL DEFAULT '',
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Movies table: stores every identified movie
+CREATE TABLE IF NOT EXISTS movies (
+  id              SERIAL PRIMARY KEY,
+  title           TEXT NOT NULL,
+  year            INTEGER NOT NULL DEFAULT 0,
+  overview        TEXT NOT NULL DEFAULT '',
+  poster_url      TEXT NOT NULL DEFAULT '',
+  directors       TEXT NOT NULL DEFAULT '',
+  actors          TEXT NOT NULL DEFAULT '',
+  genre           TEXT NOT NULL DEFAULT '',
+  watchmode_id    TEXT NOT NULL DEFAULT '',
+  watch_links     TEXT NOT NULL DEFAULT '[]',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Movie history table: one row per movie search request
+CREATE TABLE IF NOT EXISTS movie_history (
+  id              SERIAL PRIMARY KEY,
+  movie_id        INTEGER NOT NULL,
+  title           TEXT NOT NULL,
+  year            INTEGER NOT NULL DEFAULT 0,
+  poster_url      TEXT NOT NULL DEFAULT '',
+  searched_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `;
 
 async function migrate() {
