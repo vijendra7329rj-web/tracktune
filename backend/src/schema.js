@@ -1,9 +1,22 @@
 // ─────────────────────────────────────────────────────────
-// src/schema.js — Database Table Schemas with Drizzle
+// src/schema.js — Drizzle ORM table definitions
+// Defines: songs, history, trending, movies, users
 // ─────────────────────────────────────────────────────────
-import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 
-// ── Songs table — stores every identified song ──────────
+// ── Users table — stores user profiles from Google login ─
+export const usersTable = pgTable("users", {
+  id: serial("id").primaryKey(),
+  googleId: text("google_id").unique().notNull(),
+  email: text("email").unique().notNull(),
+  name: text("name").notNull().default(""),
+  picture: text("picture").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ── Songs table — stores every identified song ────────
 export const songsTable = pgTable("songs", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -21,7 +34,7 @@ export const songsTable = pgTable("songs", {
     .defaultNow(),
 });
 
-// ── History table — one row per identification request ──
+// ── History table — one row per identification request ─
 export const historyTable = pgTable("history", {
   id: serial("id").primaryKey(),
   songId: integer("song_id").notNull(),
