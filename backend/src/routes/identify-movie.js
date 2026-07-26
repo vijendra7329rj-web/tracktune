@@ -2,13 +2,16 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { moviesTable, movieHistoryTable } from "../schema.js";
 import { eq, and } from "drizzle-orm";
-import youtubedl from "yt-dlp-exec";
+import { create as createYoutubeDl } from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import axios from "axios";
 import { execFile } from "child_process";
 import { promisify } from "util";
+
+const YTDLP_PATH = fs.existsSync("/usr/local/bin/yt-dlp") ? "/usr/local/bin/yt-dlp" : undefined;
+const youtubedl = createYoutubeDl(YTDLP_PATH);
 
 const router = Router();
 const execFileAsync = promisify(execFile);
