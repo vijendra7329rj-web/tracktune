@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { moviesTable, movieHistoryTable } from "../schema.js";
 import { eq, and } from "drizzle-orm";
-import { create as createYoutubeDl } from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -10,11 +9,44 @@ import axios from "axios";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
-const YTDLP_PATH = fs.existsSync("/usr/local/bin/yt-dlp") ? "/usr/local/bin/yt-dlp" : undefined;
-const youtubedl = createYoutubeDl(YTDLP_PATH);
-
 const router = Router();
 const execFileAsync = promisify(execFile);
+
+// Custom transparent child_process wrapper to invoke yt-dlp CLI
+async function youtubedl(url, options) {
+  const getBinaryPath = () => {
+    if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
+    if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
+    // Check standard node_modules paths
+    const nodeModulesPath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp");
+    if (fs.existsSync(nodeModulesPath)) return nodeModulesPath;
+    const nodeModulesExePath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp.exe");
+    if (fs.existsSync(nodeModulesExePath)) return nodeModulesExePath;
+    return "yt-dlp";
+  };
+
+  const binary = getBinaryPath();
+  const args = [url];
+  
+  if (options.output) args.push("--output", options.output);
+  if (options.extractAudio) args.push("--extract-audio");
+  if (options.audioFormat) args.push("--audio-format", options.audioFormat);
+  if (options.noWarnings) args.push("--no-warnings");
+  if (options.noCallHome) args.push("--no-call-home");
+  if (options.cookies) args.push("--cookies", options.cookies);
+  if (options.addHeader) {
+    for (const header of options.addHeader) {
+      args.push("--add-header", header);
+    }
+  }
+
+  console.log(`[EXEC] Running command: ${binary} ${args.join(" ")}`);
+  
+  return execFileAsync(binary, args, {
+    timeout: 60000,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+}
 
 // Diagnostic log to see what models this API key can access
 const testKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
