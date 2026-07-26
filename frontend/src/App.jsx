@@ -15,13 +15,13 @@ const ProfileScreen = () => <div className="p-6 pt-12 text-center text-white"><h
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#021110] text-[#f0f0f0] overflow-x-hidden font-sans pb-10 relative select-none">
+    <div className="min-h-screen bg-[var(--theme-bg,#021110)] text-[#f0f0f0] overflow-x-hidden font-sans pb-10 relative select-none transition-colors duration-700">
       {/* Liquid Gooey Morphic Background Blobs */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute inset-0 liquid-container opacity-40">
-          <div className="absolute top-[10%] left-[10%] w-[250px] h-[250px] rounded-full bg-[#13dfbf] blur-[15px] animate-blob"></div>
-          <div className="absolute top-[40%] right-[5%] w-[280px] h-[280px] rounded-full bg-[#0b6660] blur-[15px] animate-blob animation-delay-2000"></div>
-          <div className="absolute bottom-[15%] left-[20%] w-[320px] h-[320px] rounded-full bg-[#043330] blur-[15px] animate-blob animation-delay-4000"></div>
+          <div className="absolute top-[10%] left-[10%] w-[250px] h-[250px] rounded-full bg-[var(--theme-primary,#13dfbf)] blur-[15px] animate-blob transition-colors duration-700"></div>
+          <div className="absolute top-[40%] right-[5%] w-[280px] h-[280px] rounded-full bg-[var(--theme-primary-dark,#0b6660)] blur-[15px] animate-blob animation-delay-2000 transition-colors duration-700"></div>
+          <div className="absolute bottom-[15%] left-[20%] w-[320px] h-[320px] rounded-full bg-[var(--theme-deep,#043330)] blur-[15px] animate-blob animation-delay-4000 transition-colors duration-700"></div>
         </div>
       </div>
       
@@ -64,7 +64,6 @@ export default function App() {
               </div>
             </Route>
           </Switch>
-          {/* BottomNav hidden for AdSense approval compliance */}
         </Router>
       </div>
     </div>
