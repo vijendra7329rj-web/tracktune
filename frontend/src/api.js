@@ -46,3 +46,16 @@ export async function getAuthConfig() {
   }
   return res.json();
 }
+
+export async function identifyMovie(url) {
+  const res = await fetch(`${API_BASE_URL}/api/identify-movie`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || "Failed to identify movie");
+  }
+  return res.json();
+}
