@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { songsTable, historyTable } from "../schema.js";
 import { eq, and } from "drizzle-orm";
-import { create as createYoutubeDl } from "yt-dlp-exec";
+import defaultYoutubedl, { create as createYoutubeDl } from "yt-dlp-exec";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -11,8 +11,14 @@ import FormData from "form-data";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
-const YTDLP_PATH = fs.existsSync("/usr/local/bin/yt-dlp") ? "/usr/local/bin/yt-dlp" : undefined;
-const youtubedl = createYoutubeDl(YTDLP_PATH);
+const getBinaryPath = () => {
+  if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
+  if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
+  return null;
+};
+
+const binaryPath = getBinaryPath();
+const youtubedl = binaryPath ? createYoutubeDl(binaryPath) : defaultYoutubedl;
 
 const router = Router();
 const execFileAsync = promisify(execFile);
