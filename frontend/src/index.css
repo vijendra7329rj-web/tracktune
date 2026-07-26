@@ -80,3 +80,26 @@
   0% { transform: scaleY(0.4); opacity: 0.5; }
   100% { transform: scaleY(1.5); opacity: 1; }
 }
+
+/* Dynamic Theme Variable Definitions */
+body {
+  transition: background-color 0.7s ease;
+}
+
+#root {
+  --theme-bg: #021110;
+  --theme-primary: #13dfbf;
+  --theme-primary-dark: #00c0a9;
+  --theme-deep: #043330;
+}
+
+body.theme-movie {
+  background-color: #090312;
+}
+
+body.theme-movie #root {
+  --theme-bg: #090312;
+  --theme-primary: #c084fc;
+  --theme-primary-dark: #7c3aed;
+  --theme-deep: #3b0764;
+}
