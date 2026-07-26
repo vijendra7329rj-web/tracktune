@@ -301,17 +301,17 @@ export default function HomeScreen() {
       
       {/* 1. Loader Overlay for URL processing */}
       {loading && (
-        <div className="absolute inset-0 bg-[var(--theme-bg,#021110)]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
+        <div className="absolute inset-0 bg-[var(--theme-bg)]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
           <div className="relative mb-12 flex items-center justify-center">
-            <div className="absolute w-44 h-44 rounded-full border border-[var(--theme-primary,#13dfbf)]/20 animate-ping duration-1000"></div>
-            <div className="absolute w-36 h-36 rounded-full border border-[var(--theme-primary,#13dfbf)]/40 animate-pulse-ring"></div>
-            <div className="relative w-28 h-28 bg-[var(--theme-deep,#042322)] border-2 border-[var(--theme-primary,#13dfbf)] rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(19,223,191,0.4)] flex items-center justify-center p-1 animate-float">
+            <div className="absolute w-44 h-44 rounded-full border border-[var(--theme-primary)]/20 animate-ping duration-1000"></div>
+            <div className="absolute w-36 h-36 rounded-full border border-[var(--theme-primary)]/40 animate-pulse-ring"></div>
+            <div className="relative w-28 h-28 bg-[var(--theme-deep)] border-2 border-[var(--theme-primary)] rounded-3xl overflow-hidden shadow-lg flex items-center justify-center p-1 animate-float">
               <img src="/logo.jpg" alt="TrackTune Logo" className="w-full h-full object-cover rounded-2xl" />
             </div>
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[var(--theme-primary,#13dfbf)] to-transparent w-full animate-bounce mt-14"></div>
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[var(--theme-primary)] to-transparent w-full animate-bounce mt-14"></div>
           </div>
           <div className="text-center max-w-sm px-4">
-            <h2 className="text-[var(--theme-primary,#13dfbf)] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
+            <h2 className="text-[var(--theme-primary)] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
               <Sparkles size={18} className="animate-spin duration-3000" /> TrackTune Active
             </h2>
             <div className="h-10 flex items-center justify-center">
@@ -328,17 +328,17 @@ export default function HomeScreen() {
 
       {/* 2. Loader Overlay for Microphone Recording */}
       {isRecording && (
-        <div className="absolute inset-0 bg-[var(--theme-bg,#021110)]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
+        <div className="absolute inset-0 bg-[var(--theme-bg)]/95 z-50 flex flex-col items-center justify-center p-6 transition-all duration-500">
           <div className="relative mb-12 flex items-center justify-center">
             {/* Multi-layered custom sonic ripple wave animation */}
-            <div className="absolute w-56 h-56 rounded-full bg-[var(--theme-primary,#13dfbf)]/5 animate-ping duration-3000"></div>
-            <div className="absolute w-44 h-44 rounded-full bg-[var(--theme-primary,#13dfbf)]/10 animate-pulse duration-1000"></div>
-            <div className="absolute w-32 h-32 rounded-full border border-[var(--theme-primary,#13dfbf)]/30 animate-pulse-ring"></div>
+            <div className="absolute w-56 h-56 rounded-full bg-[var(--theme-primary)]/5 animate-ping duration-3000"></div>
+            <div className="absolute w-44 h-44 rounded-full bg-[var(--theme-primary)]/10 animate-pulse duration-1000"></div>
+            <div className="absolute w-32 h-32 rounded-full border border-[var(--theme-primary)]/30 animate-pulse-ring"></div>
             
             {/* Glowing active microphone core button */}
             <button 
               onClick={cancelRecording}
-              className="relative w-28 h-28 bg-[var(--theme-primary,#13dfbf)] rounded-full shadow-[0_0_60px_rgba(19,223,191,0.6)] flex flex-col items-center justify-center hover:scale-95 active:scale-90 transition-all duration-300 border border-white/10"
+              className="relative w-28 h-28 bg-[var(--theme-primary)] rounded-full shadow-lg flex flex-col items-center justify-center hover:scale-95 active:scale-90 transition-all duration-300 border border-white/10"
             >
               <Volume2 size={36} className="text-black animate-bounce mb-1" />
               <span className="text-[10px] text-black font-black uppercase tracking-wider">{8 - recordingSeconds}s Left</span>
@@ -346,7 +346,7 @@ export default function HomeScreen() {
           </div>
           
           <div className="text-center max-w-sm px-4">
-            <h2 className="text-[var(--theme-primary,#13dfbf)] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
+            <h2 className="text-[var(--theme-primary)] text-xl font-bold flex items-center justify-center gap-2 mb-3 tracking-wide">
               Listening to Song...
             </h2>
             <div className="h-10 flex items-center justify-center">
@@ -357,11 +357,11 @@ export default function HomeScreen() {
             
             {/* Visualizer micro bars */}
             <div className="flex items-center justify-center gap-1.5 mt-8 h-8">
-              <div className="w-1.5 h-4 bg-[var(--theme-primary,#13dfbf)] rounded-full animate-[visualizer_0.6s_ease-in-out_infinite_alternate]"></div>
-              <div className="w-1.5 h-7 bg-[var(--theme-primary,#13dfbf)] rounded-full animate-[visualizer_0.8s_ease-in-out_infinite_alternate_0.1s]"></div>
-              <div className="w-1.5 h-5 bg-[var(--theme-primary,#13dfbf)] rounded-full animate-[visualizer_0.5s_ease-in-out_infinite_alternate_0.2s]"></div>
-              <div className="w-1.5 h-8 bg-[var(--theme-primary,#13dfbf)] rounded-full animate-[visualizer_0.9s_ease-in-out_infinite_alternate_0.3s]"></div>
-              <div className="w-1.5 h-3 bg-[var(--theme-primary,#13dfbf)] rounded-full animate-[visualizer_0.7s_ease-in-out_infinite_alternate_0.4s]"></div>
+              <div className="w-1.5 h-4 bg-[var(--theme-primary)] rounded-full animate-[visualizer_0.6s_ease-in-out_infinite_alternate]"></div>
+              <div className="w-1.5 h-7 bg-[var(--theme-primary)] rounded-full animate-[visualizer_0.8s_ease-in-out_infinite_alternate_0.1s]"></div>
+              <div className="w-1.5 h-5 bg-[var(--theme-primary)] rounded-full animate-[visualizer_0.5s_ease-in-out_infinite_alternate_0.2s]"></div>
+              <div className="w-1.5 h-8 bg-[var(--theme-primary)] rounded-full animate-[visualizer_0.9s_ease-in-out_infinite_alternate_0.3s]"></div>
+              <div className="w-1.5 h-3 bg-[var(--theme-primary)] rounded-full animate-[visualizer_0.7s_ease-in-out_infinite_alternate_0.4s]"></div>
             </div>
 
             <button 
@@ -533,8 +533,8 @@ export default function HomeScreen() {
 
         {/* About / How It Works Text Section for AdSense Content Compliance */}
         {searchMode === 'movie' ? (
-          <section className="w-full mt-10 p-6 bg-black/20 border border-[var(--theme-primary,#13dfbf)]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left transition-all duration-500">
-            <h2 className="text-[var(--theme-primary,#13dfbf)] text-xs font-black uppercase tracking-wider mb-3">
+          <section className="w-full mt-10 p-6 bg-black/20 border border-[var(--theme-primary)]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left transition-all duration-500">
+            <h2 className="text-[var(--theme-primary)] text-xs font-black uppercase tracking-wider mb-3">
               About TrackTune — The Advanced AI Movie Finder Online
             </h2>
             <p className="text-gray-300 text-[10px] leading-relaxed mb-4">
@@ -546,8 +546,8 @@ export default function HomeScreen() {
             </p>
           </section>
         ) : (
-          <section className="w-full mt-10 p-6 bg-black/20 border border-[var(--theme-primary,#13dfbf)]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left transition-all duration-500">
-            <h2 className="text-[var(--theme-primary,#13dfbf)] text-xs font-black uppercase tracking-wider mb-3">
+          <section className="w-full mt-10 p-6 bg-black/20 border border-[var(--theme-primary)]/10 rounded-3xl backdrop-blur-xl relative z-20 text-left transition-all duration-500">
+            <h2 className="text-[var(--theme-primary)] text-xs font-black uppercase tracking-wider mb-3">
               About TrackTune — The Advanced AI Music Finder Online
             </h2>
             <p className="text-gray-300 text-[10px] leading-relaxed mb-4">
@@ -567,11 +567,11 @@ export default function HomeScreen() {
         {/* Footer for AdSense Compliance */}
         <footer className="w-full mt-8 pb-4 text-center text-[10px] text-gray-500 font-medium relative z-20">
           <div className="flex justify-center gap-4 mb-2">
-            <a href="/privacy" className="hover:text-[var(--theme-primary,#13dfbf)] transition-colors">Privacy Policy</a>
+            <a href="/privacy" className="hover:text-[var(--theme-primary)] transition-colors">Privacy Policy</a>
             <span className="text-gray-700">•</span>
-            <a href="/faq" className="hover:text-[var(--theme-primary,#13dfbf)] transition-colors">FAQ & Help</a>
+            <a href="/faq" className="hover:text-[var(--theme-primary)] transition-colors">FAQ & Help</a>
             <span className="text-gray-700">•</span>
-            <a href="/terms" className="hover:text-[var(--theme-primary,#13dfbf)] transition-colors">Terms of Service</a>
+            <a href="/terms" className="hover:text-[var(--theme-primary)] transition-colors">Terms of Service</a>
           </div>
           <p>© {new Date().getFullYear()} TrackTune. All Rights Reserved.</p>
         </footer>
@@ -581,9 +581,9 @@ export default function HomeScreen() {
       {/* 3. Google Sign-In Prompt Modal */}
       {showAuthModal && (
         <div className="absolute inset-0 bg-[#021110]/90 z-50 flex items-center justify-center p-6 backdrop-blur-md transition-all duration-300 animate-fade-in">
-          <div className="glass-card w-full max-w-sm p-6 text-center border border-[var(--theme-primary,#13dfbf)]/30 relative flex flex-col items-center justify-center shadow-[0_0_80px_var(--theme-primary,#13dfbf)]/20">
-            <div className="w-16 h-16 bg-[#042322] border-2 border-[var(--theme-primary,#13dfbf)] rounded-2xl flex items-center justify-center mb-4 shadow-lg animate-float">
-              <Sparkles size={28} className="text-[var(--theme-primary,#13dfbf)] animate-pulse" />
+          <div className="glass-card w-full max-w-sm p-6 text-center border border-[var(--theme-primary)]/30 relative flex flex-col items-center justify-center shadow-2xl">
+            <div className="w-16 h-16 bg-[#042322] border-2 border-[var(--theme-primary)] rounded-2xl flex items-center justify-center mb-4 shadow-lg animate-float">
+              <Sparkles size={28} className="text-[var(--theme-primary)] animate-pulse" />
             </div>
             
             <h3 className="text-white text-lg font-black tracking-tight mb-2">Unlock Unlimited Discovery</h3>
@@ -607,5 +607,4 @@ export default function HomeScreen() {
       )}
 
     </div>
-  );
-}
+  );,TargetFile:c:\Users\ASUS\Downloads\tracktune\tracktune\frontend\src\pages\HomeScreen.jsx,TargetLintErrorIds:[],toolAction:Replacing color variables with build-friendly format in HomeScreen.jsx,toolSummary:Remove syntax fallbacks in HomeScreen.jsx}
