@@ -130,10 +130,14 @@ async function extractFrames(sourcePath, tempDir, debugId) {
 // ── Download Video Helper ──
 
 const COBALT_MIRRORS = [
+  "https://cobalt.hyper.us.kg/",
+  "https://api.smooth.cafe/",
+  "https://cobalt.sh.alby.im/",
+  "https://cobalt.foxtrot.us.kg/",
+  "https://cobalt.perennial.us.kg/",
   "https://co.wuk.sh/api/json",
   "https://api.cobalt.tools",
-  "https://cobalt.shizuku.io/api/json",
-  "https://cobalt.xyz/api/json"
+  "https://api.cobalt.tools/"
 ];
 
 async function downloadViaMirror(url, targetPath, debugId) {
