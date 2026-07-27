@@ -462,74 +462,6 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
   throw new Error(`All Gemini models failed. Last error: ${lastError?.response?.data?.error?.message || lastError?.message}`);
 }
 
-async function getWatchmodeStreamingData(title, year, debugId) {
-  const apiKey = process.env.WATCHMODE_API_KEY ? process.env.WATCHMODE_API_KEY.trim() : null;
-  if (!apiKey) {
-    console.warn(`[${debugId}] WATCHMODE_API_KEY is not set. Skipping streaming links.`);
-    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
-  }
-
-  try {
-    console.log(`[${debugId}] Searching Watchmode for: "${title} (${year})"`);
-    const searchRes = await axios.get(`https://api.watchmode.com/v1/search/`, {
-      params: {
-        apiKey,
-        search_value: title,
-        search_type: 1
-      },
-      timeout: 15000
-    });
-
-    const results = searchRes.data?.results || [];
-    // Find matching title + release year
-    const match = results.find(r => r.name.toLowerCase() === title.toLowerCase() && Math.abs(Number(r.year || 0) - year) <= 1) || results[0];
-    
-    if (!match) {
-      console.warn(`[${debugId}] No matching title found in Watchmode.`);
-      return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
-    }
-
-    const watchmodeId = match.id;
-    console.log(`[${debugId}] Found Watchmode ID: ${watchmodeId}. Fetching details & sources...`);
-
-    // Fetch details (overview, poster, actors)
-    const detailsRes = await axios.get(`https://api.watchmode.com/v1/title/${watchmodeId}/details/`, {
-      params: { apiKey },
-      timeout: 15000
-    });
-
-    // Fetch streaming links for India region (IN)
-    const sourcesRes = await axios.get(`https://api.watchmode.com/v1/title/${watchmodeId}/sources/`, {
-      params: {
-        apiKey,
-        regions: "IN"
-      },
-      timeout: 15000
-    });
-
-    const sources = sourcesRes.data || [];
-    // Filter and map only relevant streaming services (Netflix, Prime, Hotstar, etc.)
-    const watchLinks = sources.map(s => ({
-      name: s.name,
-      type: s.type, // e.g. sub, rent, buy
-      url: s.web_url,
-      format: s.format
-    }));
-
-    return {
-      watchmodeId: String(watchmodeId),
-      watchLinks: JSON.stringify(watchLinks),
-      poster: detailsRes.data?.poster || "",
-      plot: detailsRes.data?.plot_overview || "",
-      backdrop: detailsRes.data?.backdrop || "",
-      trailer: detailsRes.data?.trailer || ""
-    };
-  } catch (err) {
-    console.error(`[${debugId}] Watchmode API call failed:`, err.message);
-    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
-  }
-}
-
 // ── Route Handler ──
 
 router.post("/identify-movie", async (req, res) => {
@@ -569,7 +501,7 @@ router.post("/identify-movie", async (req, res) => {
     }
 
     // ── DATABASE CACHE CHECK ──
-    // Check if we have already saved this movie details before
+    // Check if we have already saved this movie before
     let movie = null;
     const existingMovies = await db.select().from(moviesTable)
       .where(and(eq(moviesTable.title, geminiResult.title), eq(moviesTable.year, geminiResult.year)))
@@ -578,52 +510,18 @@ router.post("/identify-movie", async (req, res) => {
     if (existingMovies.length > 0) {
       console.log(`[${debugId}] Database Cache Hit for: "${geminiResult.title}"`);
       movie = existingMovies[0];
-      
-      // If the cached movie is missing details (like the poster) and we now have the watchmode key, enrich it!
-      const watchmodeKey = process.env.WATCHMODE_API_KEY;
-      if ((!movie.posterUrl || !movie.overview || movie.watchLinks === "[]") && watchmodeKey) {
-        console.log(`[${debugId}] Cached movie is missing details. Fetching from Watchmode to enrich cache...`);
-        try {
-          const movieDetails = await getWatchmodeStreamingData(geminiResult.title, geminiResult.year, debugId);
-          if (movieDetails.watchmodeId) {
-            const updateFields = {};
-            if (movieDetails.poster) updateFields.posterUrl = movieDetails.poster;
-            if (movieDetails.plot) updateFields.overview = movieDetails.plot;
-            if (movieDetails.watchLinks && movieDetails.watchLinks !== "[]") updateFields.watchLinks = movieDetails.watchLinks;
-            if (movieDetails.backdrop) updateFields.backdropUrl = movieDetails.backdrop;
-            if (movieDetails.trailer) updateFields.trailerUrl = movieDetails.trailer;
-            if (movieDetails.watchmodeId) updateFields.watchmodeId = movieDetails.watchmodeId;
-            
-            if (Object.keys(updateFields).length > 0) {
-              const [updatedMovie] = await db.update(moviesTable)
-                .set(updateFields)
-                .where(eq(moviesTable.id, movie.id))
-                .returning();
-              if (updatedMovie) {
-                movie = updatedMovie;
-                console.log(`[${debugId}] Successfully enriched cached movie details.`);
-              }
-            }
-          }
-        } catch (enrichErr) {
-          console.warn(`[${debugId}] Failed to enrich cached movie details:`, enrichErr.message);
-        }
-      }
     } else {
-      // 4. Fetch details & streaming links from Watchmode
-      const movieDetails = await getWatchmodeStreamingData(geminiResult.title, geminiResult.year, debugId);
-
-      // Save to database
+      // Save to database with blank streaming details
       const [newMovie] = await db.insert(moviesTable).values({
         title: geminiResult.title,
         year: geminiResult.year,
-        overview: movieDetails.plot || "No overview available.",
-        posterUrl: movieDetails.poster || "",
+        overview: "Movie identified via TrackTune AI.",
+        posterUrl: "",
         genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
-        watchmodeId: movieDetails.watchmodeId,
-        watchLinks: movieDetails.watchLinks,
-        backdropUrl: movieDetails.backdrop || "",
-        trailerUrl: movieDetails.trailer || "",
+        watchmodeId: "",
+        watchLinks: "[]",
+        backdropUrl: "",
+        trailerUrl: "",
       }).returning();
       
       movie = newMovie;
