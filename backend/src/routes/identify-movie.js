@@ -188,26 +188,29 @@ async function downloadViaMirror(url, targetPath, debugId) {
 async function downloadViaRapidAPI(url, targetPath, debugId) {
   const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!apiKey) {
-    throw new Error("Missing RAPIDAPI_KEY");
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
   }
 
-  console.log(`[${debugId}] Downloading video via RapidAPI downloader service...`);
-  const options = {
-    method: 'GET',
-    url: 'https://social-media-video-downloader.p.rapidapi.com/api/v1/social/autolink',
-    params: { url: url },
+  console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
+  
+  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
+    url: url
+  }, {
     headers: {
-      'x-rapidapi-key': apiKey,
-      'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com'
+      "Content-Type": "application/json",
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com"
     },
     timeout: 15000
-  };
+  });
 
-  const response = await axios.request(options);
-  const downloadUrl = response.data?.links?.[0]?.link || response.data?.url;
-  
+  const medias = response.data?.medias || [];
+  // Prioritize video/MP4 format over audio so we can extract frames!
+  const videoMedia = medias.find(m => m.type === "video" || m.extension === "mp4") || medias[0];
+  const downloadUrl = videoMedia?.url;
+
   if (!downloadUrl) {
-    throw new Error("RapidAPI response did not contain a valid media download URL.");
+    throw new Error("RapidAPI response did not contain a valid download URL.");
   }
 
   console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
@@ -238,24 +241,102 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
   return true;
 }
 
+async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
+  const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!apiKey) {
+    throw new Error("No RAPIDAPI_KEY found in environment variables.");
+  }
+
+  console.log(`[${debugId}] Attempting download via Backup RapidAPI (Downloader B)...`);
+  
+  const response = await axios.get("https://all-in-one-video-downloader.p.rapidapi.com/index.php", {
+    params: { url: url },
+    headers: {
+      "x-rapidapi-key": apiKey,
+      "x-rapidapi-host": "all-in-one-video-downloader.p.rapidapi.com"
+    },
+    timeout: 15000
+  });
+
+  const links = response.data?.links || [];
+  // Prioritize video/mp4 links so we can extract frames
+  const videoLinkObj = links.find(l => l.quality === "video" || l.link?.includes(".mp4") || (!l.quality?.includes("audio") && !l.link?.includes(".mp3"))) || response.data?.video || links[0];
+  const downloadUrl = typeof videoLinkObj === "string" ? videoLinkObj : videoLinkObj?.link || response.data?.url;
+
+  if (!downloadUrl) {
+    throw new Error("Backup RapidAPI response did not contain a valid media download URL.");
+  }
+
+  console.log(`[${debugId}] Backup RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+
+  const fileResponse = await axios({
+    method: "get",
+    url: downloadUrl,
+    responseType: "stream",
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Connection": "keep-alive"
+    }
+  });
+
+  const writer = fs.createWriteStream(targetPath);
+  fileResponse.data.pipe(writer);
+
+  await new Promise((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+
+  console.log(`[${debugId}] Backup RapidAPI file saved. Size: ${fs.statSync(targetPath).size} bytes`);
+  return true;
+}
+
 async function downloadVideo(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp4`);
 
-  // Try RapidAPI first for high reliability (Instagram, TikTok bypass)
-  try {
-    const hasApiKey = !!process.env.RAPIDAPI_KEY;
-    if (hasApiKey) {
-      await downloadViaRapidAPI(url, mirrorPath, debugId);
-      return mirrorPath;
-    } else {
-      console.warn(`[${debugId}] RAPIDAPI_KEY not found. Skipping RapidAPI.`);
+  // ── Bulletproof RapidAPI key detection ──
+  // Search ALL env vars for anything containing "RAPID" (handles typos, whitespace in key names)
+  let rapidApiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
+  if (!rapidApiKey) {
+    const allRapidKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID"));
+    console.log(`[${debugId}] RAPIDAPI_KEY not found directly. Scanning env... found keys:`, allRapidKeys);
+    for (const altKey of allRapidKeys) {
+      const val = process.env[altKey]?.trim();
+      if (val && val.length > 10) {
+        rapidApiKey = val;
+        break;
+      }
     }
-  } catch (err) {
-    console.warn(`[${debugId}] RapidAPI downloader failed, trying Cobalt mirror...`, err.message);
   }
 
-  // Try public mirrors next (to avoid local IP blocks)
+  console.log(`[${debugId}] RapidAPI key available: ${!!rapidApiKey}, length: ${rapidApiKey ? rapidApiKey.length : 0}`);
+
+  // 1. First Priority: Try Premium RapidAPI Downloader A
+  if (rapidApiKey) {
+    process.env.RAPIDAPI_KEY = rapidApiKey;
+    try {
+      await downloadViaRapidAPI(url, mirrorPath, debugId);
+      return mirrorPath;
+    } catch (rapidError) {
+      console.warn(`[${debugId}] Premium RapidAPI Downloader A failed, trying Downloader B...`, rapidError.message);
+      // Try Backup Downloader B
+      try {
+        await downloadViaRapidAPIBackup(url, mirrorPath, debugId);
+        return mirrorPath;
+      } catch (backupError) {
+        console.warn(`[${debugId}] Premium RapidAPI Downloader B failed, trying fallback mirrors...`, backupError.message);
+      }
+    }
+  } else {
+    console.error(`[${debugId}] *** CRITICAL: No RapidAPI key found in ANY environment variable! Skipping premium downloaders. ***`);
+  }
+
+  // 2. Second Priority: Fall back to public Cobalt mirrors
   try {
     await downloadViaMirror(url, mirrorPath, debugId);
     return mirrorPath;
@@ -363,7 +444,7 @@ async function getWatchmodeStreamingData(title, year, debugId) {
   const apiKey = process.env.WATCHMODE_API_KEY ? process.env.WATCHMODE_API_KEY.trim() : null;
   if (!apiKey) {
     console.warn(`[${debugId}] WATCHMODE_API_KEY is not set. Skipping streaming links.`);
-    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
+    return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
   }
 
   try {
@@ -383,7 +464,7 @@ async function getWatchmodeStreamingData(title, year, debugId) {
     
     if (!match) {
       console.warn(`[${debugId}] No matching title found in Watchmode.`);
-      return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "", backdrop: "", trailer: "" };
+      return { watchmodeId: "", watchLinks: "[]", poster: "", plot: "" };
     }
 
     const watchmodeId = match.id;
