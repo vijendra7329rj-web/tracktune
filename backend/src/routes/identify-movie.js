@@ -359,7 +359,7 @@ async function downloadVideo(url, sourceTemplate, debugId) {
     ]
   };
 
-  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  const cookiesEnv = process.env.YOUTUBE_COOKUES;
   let cookieFilePath = null;
   if (cookiesEnv) {
     cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
@@ -418,7 +418,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
 
   const prompt = "Identify the movie or TV show title, release year, and estimate the scene timestamp (e.g. '01:23:45' or 'around 45 mins') from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"], \"scene_timestamp\": \"estimated timestamp or scene description\"}. If you cannot identify it, set title to empty string and year, confidence and scene_timestamp to 0.";
 
-  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
+  const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
     contents: [
       {
         parts: [
@@ -431,7 +431,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
       responseMimeType: "application/json"
     }
   }, {
-    timeout: 30000
+    timeout: 60000
   });
 
   const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -560,6 +560,37 @@ router.post("/identify-movie", async (req, res) => {
     if (existingMovies.length > 0) {
       console.log(`[${debugId}] Database Cache Hit for: "${geminiResult.title}"`);
       movie = existingMovies[0];
+      
+      // If the cached movie is missing details (like the poster) and we now have the watchmode key, enrich it!
+      const watchmodeKey = process.env.WATCHMODE_API_KEY;
+      if ((!movie.posterUrl || !movie.overview || movie.watchLinks === "[]") && watchmodeKey) {
+        console.log(`[${debugId}] Cached movie is missing details. Fetching from Watchmode to enrich cache...`);
+        try {
+          const movieDetails = await getWatchmodeStreamingData(geminiResult.title, geminiResult.year, debugId);
+          if (movieDetails.watchmodeId) {
+            const updateFields = {};
+            if (movieDetails.poster) updateFields.posterUrl = movieDetails.poster;
+            if (movieDetails.plot) updateFields.overview = movieDetails.plot;
+            if (movieDetails.watchLinks && movieDetails.watchLinks !== "[]") updateFields.watchLinks = movieDetails.watchLinks;
+            if (movieDetails.backdrop) updateFields.backdropUrl = movieDetails.backdrop;
+            if (movieDetails.trailer) updateFields.trailerUrl = movieDetails.trailer;
+            if (movieDetails.watchmodeId) updateFields.watchmodeId = movieDetails.watchmodeId;
+            
+            if (Object.keys(updateFields).length > 0) {
+              const [updatedMovie] = await db.update(moviesTable)
+                .set(updateFields)
+                .where(eq(moviesTable.id, movie.id))
+                .returning();
+              if (updatedMovie) {
+                movie = updatedMovie;
+                console.log(`[${debugId}] Successfully enriched cached movie details.`);
+              }
+            }
+          }
+        } catch (enrichErr) {
+          console.warn(`[${debugId}] Failed to enrich cached movie details:`, enrichErr.message);
+        }
+      }
     } else {
       // 4. Fetch details & streaming links from Watchmode
       const movieDetails = await getWatchmodeStreamingData(geminiResult.title, geminiResult.year, debugId);
