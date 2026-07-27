@@ -52,7 +52,7 @@ async function youtubedl(url, options) {
 const testKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 if (testKey) {
   console.log(`🔍 DIAGNOSTIC: GEMINI_API_KEY is configured. Length: ${testKey.length}. Starts with AIzaSy: ${testKey.startsWith("AIzaSy")}`);
-  axios.get(`https://generativelanguage.googleapis.com/v1/models?key=${testKey}`)
+  axios.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + testKey)
     .then(res => {
       console.log("🔍 DIAGNOSTIC: Available Gemini Models:", res.data?.models?.map(m => m.name));
     })
@@ -397,9 +397,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
     throw new Error("TrackTune is missing the GEMINI_API_KEY environment variable.");
   }
 
-  console.log(`[${debugId}] Calling Gemini 1.5 Flash API...`);
   const imageParts = [];
-
   for (const imgPath of imagePaths) {
     if (fs.existsSync(imgPath)) {
       const base64 = fs.readFileSync(imgPath).toString("base64");
@@ -418,30 +416,50 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
 
   const prompt = "Identify the movie or TV show title, release year, and estimate the scene timestamp (e.g. '01:23:45' or 'around 45 mins') from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"], \"scene_timestamp\": \"estimated timestamp or scene description\"}. If you cannot identify it, set title to empty string and year, confidence and scene_timestamp to 0.";
 
-  const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          ...imageParts
-        ]
-      }
-    ],
-    generationConfig: {
-      responseMimeType: "application/json"
-    }
-  }, {
-    timeout: 60000
-  });
+  const modelsToTry = [
+    "gemini-3.5-flash-lite", // Priority: high speed & availability
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro",
+    "gemini-1.5-pro",
+    "gemini-3.6-flash"
+  ];
 
-  const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!responseText) {
-    throw new Error("Gemini API returned an empty response.");
+  let lastError = null;
+  for (const model of modelsToTry) {
+    try {
+      console.log(`[${debugId}] Calling Gemini API with model: ${model}...`);
+      const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              ...imageParts
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      }, {
+        timeout: 40000 // 40 seconds per attempt
+      });
+
+      const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!responseText) {
+        throw new Error(`Gemini model ${model} returned empty response.`);
+      }
+
+      const result = JSON.parse(responseText.trim());
+      console.log(`[${debugId}] Gemini model ${model} response:`, result);
+      return result;
+    } catch (err) {
+      console.warn(`[${debugId}] Gemini model ${model} failed:`, err.response?.data?.error?.message || err.message);
+      lastError = err;
+    }
   }
 
-  const result = JSON.parse(responseText.trim());
-  console.log(`[${debugId}] Gemini response:`, result);
-  return result;
+  throw new Error(`All Gemini models failed. Last error: ${lastError?.response?.data?.error?.message || lastError?.message}`);
 }
 
 async function getWatchmodeStreamingData(title, year, debugId) {
