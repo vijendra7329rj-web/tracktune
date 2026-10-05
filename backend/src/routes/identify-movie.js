@@ -32,8 +32,9 @@ async function youtubedl(url, options) {
   if (options.extractAudio) args.push("--extract-audio");
   if (options.audioFormat) args.push("--audio-format", options.audioFormat);
   if (options.noWarnings) args.push("--no-warnings");
-  if (options.noCallHome) args.push("--no-call-home");
   if (options.cookies) args.push("--cookies", options.cookies);
+  if (options.extractorArgs) args.push("--extractor-args", options.extractorArgs);
+  if (options.jsRuntime) args.push("--js-runtime", options.jsRuntime);
   if (options.addHeader) {
     for (const header of options.addHeader) {
       args.push("--add-header", header);
@@ -352,7 +353,8 @@ async function downloadVideo(url, sourceTemplate, debugId) {
   const ytdlpOptions = {
     output: sourceTemplate,
     noWarnings: true,
-    noCallHome: true,
+    jsRuntime: "node",
+    extractorArgs: "youtube:player_client=android",
     addHeader: [
       "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
       "Accept-Language:en-US,en;q=0.9"
@@ -503,37 +505,52 @@ router.post("/identify-movie", async (req, res) => {
     // ── DATABASE CACHE CHECK ──
     // Check if we have already saved this movie before
     let movie = null;
-    const existingMovies = await db.select().from(moviesTable)
-      .where(and(eq(moviesTable.title, geminiResult.title), eq(moviesTable.year, geminiResult.year)))
-      .limit(1);
+    try {
+      const existingMovies = await db.select().from(moviesTable)
+        .where(and(eq(moviesTable.title, geminiResult.title), eq(moviesTable.year, geminiResult.year)))
+        .limit(1);
 
-    if (existingMovies.length > 0) {
-      console.log(`[${debugId}] Database Cache Hit for: "${geminiResult.title}"`);
-      movie = existingMovies[0];
-    } else {
-      // Save to database with blank streaming details
-      const [newMovie] = await db.insert(moviesTable).values({
+      if (existingMovies.length > 0) {
+        console.log(`[${debugId}] Database Cache Hit for: "${geminiResult.title}"`);
+        movie = existingMovies[0];
+      } else {
+        // Save to database with blank streaming details
+        const [newMovie] = await db.insert(moviesTable).values({
+          title: geminiResult.title,
+          year: geminiResult.year,
+          overview: "Movie identified via TrackTune AI.",
+          posterUrl: "",
+          genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
+          watchmodeId: "",
+          watchLinks: "[]",
+          backdropUrl: "",
+          trailerUrl: "",
+        }).returning();
+        
+        movie = newMovie;
+      }
+
+      // Save to user search history
+      await db.insert(movieHistoryTable).values({
+        movieId: movie.id,
+        title: movie.title,
+        year: movie.year,
+        posterUrl: movie.posterUrl,
+      });
+    } catch (dbError) {
+      console.warn(`[${debugId}] Database save/cache error (returning movie directly):`, dbError.message);
+      movie = {
+        id: "local-" + Date.now(),
         title: geminiResult.title,
         year: geminiResult.year,
         overview: "Movie identified via TrackTune AI.",
         posterUrl: "",
         genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
-        watchmodeId: "",
         watchLinks: "[]",
         backdropUrl: "",
         trailerUrl: "",
-      }).returning();
-      
-      movie = newMovie;
+      };
     }
-
-    // Save to user search history
-    await db.insert(movieHistoryTable).values({
-      movieId: movie.id,
-      title: movie.title,
-      year: movie.year,
-      posterUrl: movie.posterUrl,
-    });
 
     return res.json({
       id: movie.id,
