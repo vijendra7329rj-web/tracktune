@@ -3,45 +3,59 @@ import app from "./app.js";
 import { logger } from "./logger.js";
 import fs from "fs";
 import https from "https";
+import axios from "axios";
 
-// Dynamic yt-dlp downloader helper for headless environments
+// Dynamic yt-dlp downloader helper for headless environments (Render/Linux)
 async function ensureYtdlp() {
   if (process.platform !== "linux") return;
   
-  const globalPath = "/usr/local/bin/yt-dlp";
   const tempPath = "/tmp/yt-dlp";
-  
-  // Always ensure the latest fresh yt-dlp binary from GitHub releases
-  console.log("⬇️ Downloading latest yt-dlp release dynamically to /tmp/yt-dlp...");
+  const nightlyUrl = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp";
+
+  // 1. If binary already exists, try updating to latest nightly build
   if (fs.existsSync(tempPath)) {
-    try { fs.unlinkSync(tempPath); } catch (e) {}
+    try {
+      console.log("🔄 Updating existing /tmp/yt-dlp to latest nightly...");
+      execSync(`${tempPath} --update-to nightly`, { stdio: "inherit", timeout: 30000 });
+      console.log("✅ yt-dlp updated to latest nightly.");
+      return;
+    } catch (updateErr) {
+      console.warn("⚠️ Self-update failed, re-downloading fresh nightly binary:", updateErr.message);
+      try { fs.unlinkSync(tempPath); } catch (e) {}
+    }
   }
 
-  console.log("⬇️ yt-dlp not found on system. Downloading Linux binary dynamically to /tmp/yt-dlp...");
+  // 2. Download fresh nightly binary (contains latest YouTube player response fixes)
+  console.log(`⬇️ Downloading latest yt-dlp nightly build from ${nightlyUrl}...`);
   try {
-    const file = fs.createWriteStream(tempPath);
-    
-    const download = (url) => {
-      return new Promise((resolve, reject) => {
-        https.get(url, (response) => {
-          if (response.statusCode === 301 || response.statusCode === 302) {
-            resolve(download(response.headers.location));
-          } else if (response.statusCode === 200) {
-            response.pipe(file);
-            file.on("finish", () => {
-              file.close();
-              fs.chmodSync(tempPath, "755");
-              console.log("✅ yt-dlp downloaded successfully to /tmp/yt-dlp");
-              resolve();
-            });
-          } else {
-            reject(new Error(`Failed to download: status ${response.statusCode}`));
-          }
-        }).on("error", reject);
-      });
-    };
+    try {
+      execSync(`curl -sL "${nightlyUrl}" -o ${tempPath} && chmod 755 ${tempPath}`, { stdio: "inherit", timeout: 45000 });
+      console.log("✅ yt-dlp nightly downloaded successfully via curl.");
+      return;
+    } catch (curlErr) {
+      console.log("curl not available or failed, falling back to axios stream...", curlErr.message);
+    }
 
-    await download("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp");
+    const response = await axios({
+      method: "get",
+      url: nightlyUrl,
+      responseType: "stream",
+      maxRedirects: 10,
+      timeout: 60000
+    });
+
+    const file = fs.createWriteStream(tempPath);
+    response.data.pipe(file);
+
+    await new Promise((resolve, reject) => {
+      file.on("finish", () => {
+        file.close();
+        fs.chmodSync(tempPath, "755");
+        console.log("✅ yt-dlp nightly downloaded and verified in /tmp/yt-dlp");
+        resolve();
+      });
+      file.on("error", reject);
+    });
   } catch (err) {
     console.error("❌ Failed to download yt-dlp dynamically:", err.message);
   }
