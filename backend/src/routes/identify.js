@@ -30,11 +30,14 @@ async function youtubedl(url, options) {
   const args = [url];
   
   if (options.output) args.push("--output", options.output);
+  if (options.format) args.push("-f", options.format);
+  if (options.f) args.push("-f", options.f);
   if (options.extractAudio) args.push("--extract-audio");
   if (options.audioFormat) args.push("--audio-format", options.audioFormat);
   if (options.noWarnings) args.push("--no-warnings");
-  if (options.noCallHome) args.push("--no-call-home");
   if (options.cookies) args.push("--cookies", options.cookies);
+  if (options.extractorArgs) args.push("--extractor-args", options.extractorArgs);
+  if (options.jsRuntime) args.push("--js-runtime", options.jsRuntime);
   if (options.addHeader) {
     for (const header of options.addHeader) {
       args.push("--add-header", header);
@@ -147,7 +150,6 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
   const duration = await getDurationSeconds(sourcePath);
   const maxStart = Math.max(0, duration - SAMPLE_SECONDS);
 
-  // Directly check from middle (drop/chorus), start, and end of the track (no CPU volume checks)
   const baseStarts = dedupeStarts([
     { label: "middle", start: maxStart * 0.5 },
     { label: "start", start: 0 },
@@ -186,7 +188,6 @@ async function buildSamplePlans(sourcePath, tempDir, debugId) {
 }
 
 async function createSample(sourcePath, plan) {
-  // Output raw signed 16-bit PCM little-endian mono audio sampled at 44100Hz
   await runTool(
     FFMPEG_PATH,
     ["-hide_banner", "-y", "-ss", plan.start.toFixed(2), "-t", SAMPLE_SECONDS.toString(), "-i", sourcePath, "-vn", "-ac", "1", "-ar", "44100", "-af", plan.filter, "-f", "s16le", "-acodec", "pcm_s16le", plan.path],
@@ -220,7 +221,6 @@ async function identifyWithShazam(samplePath, plan) {
   const album = cleanText(track.sections?.[0]?.metadata?.find(m => m.title === "Album")?.text || "");
   const genre = cleanText(track.genres?.primary || "Pop");
 
-  // Construct fallback search URLs for Spotify and YouTube
   const searchTerms = `${artist} ${title}`;
   const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerms)}`;
   const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms)}`;
@@ -258,10 +258,9 @@ function topUniqueMatches(matches) {
 }
 
 // ─────────────────────────────────────────────
-// Core Download Function - Uses a Failover Chain of Public Download Mirrors
+// Core Download Function
 // ─────────────────────────────────────────────
 
-// List of public Cobalt instances that process audio conversions for us
 const COBALT_MIRRORS = [
   "https://cobalt.hyper.us.kg/",
   "https://api.smooth.cafe/",
@@ -300,7 +299,6 @@ async function downloadViaMirror(url, targetPath, debugId) {
 
       console.log(`[${debugId}] Mirror succeeded. Downloading audio payload from CDN...`);
       
-      // Download actual audio file from CDN link returned by the mirror
       const fileResponse = await axios({
         method: "get",
         url: downloadUrl,
@@ -335,7 +333,6 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
 
   console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
   
-  // Call the highly stable Social Download All In One on RapidAPI
   const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
     url: url
   }, {
@@ -347,7 +344,6 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
     timeout: 15000
   });
 
-  // Find direct MP4/MP3 download link in the standardized medias array
   const medias = response.data?.medias || [];
   const audioMedia = medias.find(m => m.type === "audio" || m.extension === "mp3" || m.quality === "audio") || medias.find(m => m.extension === "mp4") || medias[0];
   const downloadUrl = audioMedia?.url;
@@ -392,7 +388,6 @@ async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
 
   console.log(`[${debugId}] Attempting download via Backup RapidAPI (Downloader B)...`);
   
-  // Call the backup All-in-One Downloader on RapidAPI
   const response = await axios.get("https://all-in-one-video-downloader.p.rapidapi.com/index.php", {
     params: { url: url },
     headers: {
@@ -402,7 +397,6 @@ async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
     timeout: 15000
   });
 
-  // Find direct MP4/MP3 download link
   const links = response.data?.links || [];
   const audioLinkObj = links.find(l => l.quality === "audio" || l.link?.includes(".mp3") || l.link?.includes("audio") || l.link?.includes("music")) || response.data?.video || response.data?.audio || links[0];
   const downloadUrl = typeof audioLinkObj === "string" ? audioLinkObj : audioLinkObj?.link || response.data?.url;
@@ -443,35 +437,26 @@ async function downloadAudio(url, sourceTemplate, debugId) {
   const tempDir = "/tmp";
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp3`);
 
-  // ── Bulletproof RapidAPI key detection ──
-  // Search ALL env vars for anything containing "RAPID" (handles typos, whitespace in key names)
   let rapidApiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!rapidApiKey) {
     const allRapidKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID"));
-    console.log(`[${debugId}] RAPIDAPI_KEY not found directly. Scanning env... found keys:`, allRapidKeys);
     for (const altKey of allRapidKeys) {
       const val = process.env[altKey]?.trim();
       if (val && val.length > 10) {
-        console.log(`[${debugId}] Using alternate key name: "${altKey}" (length=${val.length})`);
         rapidApiKey = val;
         break;
       }
     }
   }
 
-  console.log(`[${debugId}] RapidAPI key available: ${!!rapidApiKey}, length: ${rapidApiKey ? rapidApiKey.length : 0}`);
-
   // 1. First Priority: Try Premium RapidAPI Downloader A
   if (rapidApiKey) {
-    // Temporarily set process.env so the download functions can read it
     process.env.RAPIDAPI_KEY = rapidApiKey;
     try {
       await downloadViaRapidAPI(url, mirrorPath, debugId);
       return mirrorPath;
     } catch (rapidError) {
       console.warn(`[${debugId}] Premium RapidAPI Downloader A failed, trying Downloader B...`, rapidError.message);
-      
-      // Fallback to Downloader B using the exact same key!
       try {
         await downloadViaRapidAPIBackup(url, mirrorPath, debugId);
         return mirrorPath;
@@ -479,11 +464,9 @@ async function downloadAudio(url, sourceTemplate, debugId) {
         console.warn(`[${debugId}] Premium RapidAPI Downloader B failed, trying fallback mirrors...`, backupError.message);
       }
     }
-  } else {
-    console.error(`[${debugId}] *** CRITICAL: No RapidAPI key found in ANY environment variable! Skipping premium downloaders. ***`);
   }
 
-  // 2. Second Priority: Try public mirrors (Failover chain)
+  // 2. Second Priority: Try public mirrors
   try {
     await downloadViaMirror(url, mirrorPath, debugId);
     return mirrorPath;
@@ -491,16 +474,12 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
   }
 
-  // 2. Local yt-dlp fallback (uses Android bypass + Cookies)
+  // 3. Local yt-dlp fallback
   const ytdlpOptions = {
     f: "bestaudio",
     output: sourceTemplate,
     noWarnings: true,
-    noCallHome: true,
-    addHeader: [
-      "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
-      "Accept-Language:en-US,en;q=0.9"
-    ]
+    jsRuntime: "node"
   };
 
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
@@ -509,14 +488,18 @@ async function downloadAudio(url, sourceTemplate, debugId) {
   if (cookiesEnv) {
     cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
     try {
-      fs.writeFileSync(cookieFilePath, cookiesEnv, "utf8");
+      fs.writeFileSync(cookieFilePath, cookiesEnv.replace(/\r\n/g, "\n").trim(), "utf8");
       ytdlpOptions.cookies = cookieFilePath;
       console.log(`[${debugId}] Using YouTube cookies from environment`);
     } catch (e) {
       console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
     }
   } else {
-    ytdlpOptions.extractorArgs = "youtube:player_client=android,web";
+    ytdlpOptions.extractorArgs = "youtube:player_client=android";
+    ytdlpOptions.addHeader = [
+      "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+      "Accept-Language:en-US,en;q=0.9"
+    ];
     console.log(`[${debugId}] No cookies found, using Android client bypass`);
   }
 
@@ -548,11 +531,6 @@ async function downloadAudio(url, sourceTemplate, debugId) {
 router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
   let rawUrl = req.body.url || "";
-  
-  console.log(`[${debugId}] DIAGNOSTIC - RAPIDAPI_KEY exists:`, !!process.env.RAPIDAPI_KEY);
-  if (process.env.RAPIDAPI_KEY) {
-    console.log(`[${debugId}] DIAGNOSTIC - RAPIDAPI_KEY length:`, process.env.RAPIDAPI_KEY.length);
-  }
   
   const url = extractUrl(rawUrl);
   if (!url) return res.status(400).json({ error: "Please share or paste a valid public video URL.", debugId });
@@ -600,27 +578,44 @@ router.post("/identify", async (req, res) => {
     }
 
     let song = null;
-    const existingSongs = await db.select().from(songsTable)
-      .where(and(eq(songsTable.title, bestMatch.title), eq(songsTable.artist, bestMatch.artist)))
-      .limit(1);
+    try {
+      const existingSongs = await db.select().from(songsTable)
+        .where(and(eq(songsTable.title, bestMatch.title), eq(songsTable.artist, bestMatch.artist)))
+        .limit(1);
 
-    if (existingSongs.length > 0) {
-      song = existingSongs[0];
-    } else {
-      const [newSong] = await db.insert(songsTable).values({
-        title: bestMatch.title, artist: bestMatch.artist, album: bestMatch.album,
-        year: bestMatch.year, genre: bestMatch.genre, spotifyId: bestMatch.spotifyId,
-        youtubeId: bestMatch.youtubeId, spotifyUrl: bestMatch.spotifyUrl,
-        youtubeUrl: bestMatch.youtubeUrl, previewUrl: null,
-      }).returning();
-      song = newSong;
+      if (existingSongs.length > 0) {
+        song = existingSongs[0];
+      } else {
+        const [newSong] = await db.insert(songsTable).values({
+          title: bestMatch.title, artist: bestMatch.artist, album: bestMatch.album,
+          year: bestMatch.year, genre: bestMatch.genre, spotifyId: bestMatch.spotifyId,
+          youtubeId: bestMatch.youtubeId, spotifyUrl: bestMatch.spotifyUrl,
+          youtubeUrl: bestMatch.youtubeUrl, previewUrl: null,
+        }).returning();
+        song = newSong;
+      }
+
+      await db.insert(historyTable).values({
+        songId: song.id, title: song.title, artist: song.artist, genre: song.genre,
+        spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl,
+        spotifyId: song.spotifyId, youtubeId: song.youtubeId,
+      });
+    } catch (dbError) {
+      console.warn(`[${debugId}] Database save/cache error (returning song directly):`, dbError.message);
+      song = {
+        id: "local-" + Date.now(),
+        title: bestMatch.title,
+        artist: bestMatch.artist,
+        album: bestMatch.album || "",
+        year: bestMatch.year || 0,
+        genre: bestMatch.genre || "",
+        spotifyId: bestMatch.spotifyId || "",
+        youtubeId: bestMatch.youtubeId || "",
+        spotifyUrl: bestMatch.spotifyUrl || "",
+        youtubeUrl: bestMatch.youtubeUrl || "",
+        previewUrl: null,
+      };
     }
-
-    await db.insert(historyTable).values({
-      songId: song.id, title: song.title, artist: song.artist, genre: song.genre,
-      spotifyUrl: song.spotifyUrl, youtubeUrl: song.youtubeUrl,
-      spotifyId: song.spotifyId, youtubeId: song.youtubeId,
-    });
 
     return res.json({
       id: song.id, title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre,
