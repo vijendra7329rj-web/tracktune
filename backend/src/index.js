@@ -1,4 +1,3 @@
-// Trigger deploy
 import { execSync } from "child_process";
 import app from "./app.js";
 import { logger } from "./logger.js";
@@ -12,9 +11,10 @@ async function ensureYtdlp() {
   const globalPath = "/usr/local/bin/yt-dlp";
   const tempPath = "/tmp/yt-dlp";
   
-  if (fs.existsSync(globalPath) || fs.existsSync(tempPath)) {
-    console.log("✅ yt-dlp executable already available.");
-    return;
+  // Always ensure the latest fresh yt-dlp binary from GitHub releases
+  console.log("⬇️ Downloading latest yt-dlp release dynamically to /tmp/yt-dlp...");
+  if (fs.existsSync(tempPath)) {
+    try { fs.unlinkSync(tempPath); } catch (e) {}
   }
 
   console.log("⬇️ yt-dlp not found on system. Downloading Linux binary dynamically to /tmp/yt-dlp...");
