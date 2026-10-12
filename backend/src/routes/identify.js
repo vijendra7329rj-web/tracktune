@@ -444,7 +444,7 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
   }
 
-  // 3. Local yt-dlp fallback (uses URL normalization, Node.js JS runtimes & client failover)
+  // 3. Local yt-dlp fallback (uses URL normalization, Node.js JS runtimes & mobile client failover)
   const targetUrl = normalizeVideoUrl(url);
   const ytdlpOptions = {
     f: "bestaudio",
@@ -460,39 +460,44 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
     try {
       fs.writeFileSync(cookieFilePath, cookiesEnv.replace(/\r\n/g, "\n").trim(), "utf8");
-      ytdlpOptions.cookies = cookieFilePath;
-      console.log(`[${debugId}] Using YouTube cookies from environment`);
+      console.log(`[${debugId}] YouTube cookies available`);
     } catch (e) {
       console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
     }
   }
 
-  // Automatic retry across client variants: web,mweb -> android -> default
-  const clientProfiles = cookiesEnv 
-    ? ["youtube:player_client=web,mweb", "youtube:player_client=android", null]
-    : ["youtube:player_client=android", "youtube:player_client=web,mweb", null];
+  // Automatic retry across client variants: Android, iOS, Web (with and without cookies)
+  const clientProfiles = [
+    { name: "android-cookies", extractorArgs: "youtube:player_client=android,ios,web", useCookies: true },
+    { name: "android-direct", extractorArgs: "youtube:player_client=android,ios", useCookies: false },
+    { name: "ios-cookies", extractorArgs: "youtube:player_client=ios", useCookies: true },
+    { name: "web-cookies", extractorArgs: "youtube:player_client=web,mweb", useCookies: true }
+  ];
 
   let lastDownloadError = null;
   try {
-    for (const clientProfile of clientProfiles) {
+    for (const profile of clientProfiles) {
       try {
-        if (clientProfile) {
-          ytdlpOptions.extractorArgs = clientProfile;
+        const opts = { ...ytdlpOptions };
+        opts.extractorArgs = profile.extractorArgs;
+        if (profile.useCookies && cookieFilePath) {
+          opts.cookies = cookieFilePath;
         } else {
-          delete ytdlpOptions.extractorArgs;
+          delete opts.cookies;
         }
-        console.log(`[${debugId}] Downloading audio locally (client=${clientProfile || 'default'}) for: ${targetUrl}`);
-        await youtubedl(targetUrl, ytdlpOptions);
+
+        console.log(`[${debugId}] Downloading audio locally (profile=${profile.name}) for: ${targetUrl}`);
+        await youtubedl(targetUrl, opts);
 
         const files = fs.readdirSync(tempDir);
         const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
         if (downloadedFile) {
           const sourcePath = path.join(tempDir, downloadedFile);
-          console.log(`[${debugId}] Local yt-dlp success. Size: ${fs.statSync(sourcePath).size} bytes`);
+          console.log(`[${debugId}] Local yt-dlp success (${profile.name}). Size: ${fs.statSync(sourcePath).size} bytes`);
           return sourcePath;
         }
       } catch (err) {
-        console.warn(`[${debugId}] Download attempt with ${clientProfile || 'default'} failed: ${err.message}`);
+        console.warn(`[${debugId}] Download attempt (${profile.name}) failed: ${err.message}`);
         lastDownloadError = err;
       }
     }
