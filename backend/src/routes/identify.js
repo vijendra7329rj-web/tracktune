@@ -18,7 +18,6 @@ async function youtubedl(url, options) {
   const getBinaryPath = () => {
     if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
     if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
-    // Check standard node_modules paths
     const nodeModulesPath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp");
     if (fs.existsSync(nodeModulesPath)) return nodeModulesPath;
     const nodeModulesExePath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp.exe");
@@ -37,7 +36,8 @@ async function youtubedl(url, options) {
   if (options.noWarnings) args.push("--no-warnings");
   if (options.cookies) args.push("--cookies", options.cookies);
   if (options.extractorArgs) args.push("--extractor-args", options.extractorArgs);
-  if (options.jsRuntime) args.push("--js-runtime", options.jsRuntime);
+  if (options.jsRuntimes) args.push("--js-runtimes", options.jsRuntimes);
+  else if (options.jsRuntime) args.push("--js-runtimes", options.jsRuntime);
   if (options.addHeader) {
     for (const header of options.addHeader) {
       args.push("--add-header", header);
@@ -58,26 +58,22 @@ const HIGH_CONFIDENCE_SCORE = Number(process.env.HIGH_CONFIDENCE_SCORE || 80);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe";
 
-// ── STARTUP DIAGNOSTICS (will print when container boots) ──
-console.log("\n=== TRACKTUNE STARTUP DIAGNOSTICS ===");
-console.log("RAPIDAPI_KEY exists:", "RAPIDAPI_KEY" in process.env);
-console.log("RAPIDAPI_KEY typeof:", typeof process.env.RAPIDAPI_KEY);
-console.log("RAPIDAPI_KEY length:", process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.length : "(undefined)");
-console.log("RAPIDAPI_KEY truthy:", !!process.env.RAPIDAPI_KEY);
-console.log("RAPIDAPI_KEY first 4 chars:", process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.substring(0, 4) + "..." : "(none)");
-console.log("All env keys containing RAPID:", Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID")));
-console.log("All env keys containing API:", Object.keys(process.env).filter(k => k.toUpperCase().includes("API")));
-console.log("=== END DIAGNOSTICS ===\n");
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
+// ── Helpers ──
 
 function extractUrl(text) {
   if (!text) return null;
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const matches = text.match(urlRegex);
   return matches ? matches[0] : null;
+}
+
+function normalizeVideoUrl(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  const match = rawUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:shorts\/|embed\/|v\/|watch\?v=))([a-zA-Z0-9_-]{11})/);
+  if (match && match[1]) {
+    return `https://www.youtube.com/watch?v=${match[1]}`;
+  }
+  return rawUrl;
 }
 
 function cleanText(value) {
@@ -257,9 +253,7 @@ function topUniqueMatches(matches) {
   return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
-// ─────────────────────────────────────────────
-// Core Download Function
-// ─────────────────────────────────────────────
+// ── Core Download Function ──
 
 const COBALT_MIRRORS = [
   "https://cobalt.hyper.us.kg/",
@@ -274,7 +268,6 @@ const COBALT_MIRRORS = [
 
 async function downloadViaMirror(url, targetPath, debugId) {
   let lastError = null;
-
   for (const mirror of COBALT_MIRRORS) {
     try {
       console.log(`[${debugId}] Attempting mirror download from: ${mirror}`);
@@ -293,12 +286,8 @@ async function downloadViaMirror(url, targetPath, debugId) {
       });
 
       const downloadUrl = response.data?.url;
-      if (!downloadUrl) {
-        throw new Error(`Mirror ${mirror} did not return direct download link.`);
-      }
+      if (!downloadUrl) throw new Error(`Mirror ${mirror} did not return direct download link.`);
 
-      console.log(`[${debugId}] Mirror succeeded. Downloading audio payload from CDN...`);
-      
       const fileResponse = await axios({
         method: "get",
         url: downloadUrl,
@@ -321,21 +310,15 @@ async function downloadViaMirror(url, targetPath, debugId) {
       lastError = err;
     }
   }
-
   throw new Error(`All download mirrors failed. Last error: ${lastError?.message}`);
 }
 
 async function downloadViaRapidAPI(url, targetPath, debugId) {
   const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
-  if (!apiKey) {
-    throw new Error("No RAPIDAPI_KEY found in environment variables.");
-  }
+  if (!apiKey) throw new Error("No RAPIDAPI_KEY found in environment variables.");
 
   console.log(`[${debugId}] Attempting download via Social Download All In One API...`);
-  
-  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {
-    url: url
-  }, {
+  const response = await axios.post("https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", { url }, {
     headers: {
       "Content-Type": "application/json",
       "x-rapidapi-key": apiKey,
@@ -347,12 +330,7 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
   const medias = response.data?.medias || [];
   const audioMedia = medias.find(m => m.type === "audio" || m.extension === "mp3" || m.quality === "audio") || medias.find(m => m.extension === "mp4") || medias[0];
   const downloadUrl = audioMedia?.url;
-
-  if (!downloadUrl) {
-    throw new Error("RapidAPI response did not contain a valid download URL.");
-  }
-
-  console.log(`[${debugId}] RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+  if (!downloadUrl) throw new Error("RapidAPI response did not contain a valid download URL.");
 
   const fileResponse = await axios({
     method: "get",
@@ -382,14 +360,11 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
 
 async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
   const apiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
-  if (!apiKey) {
-    throw new Error("No RAPIDAPI_KEY found in environment variables.");
-  }
+  if (!apiKey) throw new Error("No RAPIDAPI_KEY found in environment variables.");
 
   console.log(`[${debugId}] Attempting download via Backup RapidAPI (Downloader B)...`);
-  
   const response = await axios.get("https://all-in-one-video-downloader.p.rapidapi.com/index.php", {
-    params: { url: url },
+    params: { url },
     headers: {
       "x-rapidapi-key": apiKey,
       "x-rapidapi-host": "all-in-one-video-downloader.p.rapidapi.com"
@@ -400,12 +375,7 @@ async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
   const links = response.data?.links || [];
   const audioLinkObj = links.find(l => l.quality === "audio" || l.link?.includes(".mp3") || l.link?.includes("audio") || l.link?.includes("music")) || response.data?.video || response.data?.audio || links[0];
   const downloadUrl = typeof audioLinkObj === "string" ? audioLinkObj : audioLinkObj?.link || response.data?.url;
-
-  if (!downloadUrl) {
-    throw new Error("Backup RapidAPI response did not contain a valid media download URL.");
-  }
-
-  console.log(`[${debugId}] Backup RapidAPI success! Download URL: ${downloadUrl.substring(0, 80)}...`);
+  if (!downloadUrl) throw new Error("Backup RapidAPI response did not contain a valid media download URL.");
 
   const fileResponse = await axios({
     method: "get",
@@ -449,7 +419,7 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     }
   }
 
-  // 1. First Priority: Try Premium RapidAPI Downloader A
+  // 1. Try RapidAPI Downloader A & B
   if (rapidApiKey) {
     process.env.RAPIDAPI_KEY = rapidApiKey;
     try {
@@ -466,7 +436,7 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     }
   }
 
-  // 2. Second Priority: Try public mirrors
+  // 2. Try public mirrors
   try {
     await downloadViaMirror(url, mirrorPath, debugId);
     return mirrorPath;
@@ -474,12 +444,13 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
   }
 
-  // 3. Local yt-dlp fallback
+  // 3. Local yt-dlp fallback (uses URL normalization, Node.js JS runtimes & client failover)
+  const targetUrl = normalizeVideoUrl(url);
   const ytdlpOptions = {
     f: "bestaudio",
     output: sourceTemplate,
     noWarnings: true,
-    jsRuntime: "node"
+    jsRuntimes: "node"
   };
 
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
@@ -494,29 +465,39 @@ async function downloadAudio(url, sourceTemplate, debugId) {
     } catch (e) {
       console.warn(`[${debugId}] Failed to write cookie file:`, e.message);
     }
-  } else {
-    ytdlpOptions.extractorArgs = "youtube:player_client=android";
-    ytdlpOptions.addHeader = [
-      "User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
-      "Accept-Language:en-US,en;q=0.9"
-    ];
-    console.log(`[${debugId}] No cookies found, using Android client bypass`);
   }
 
-  try {
-    console.log(`[${debugId}] Downloading audio locally for: ${url}`);
-    await youtubedl(url, ytdlpOptions);
+  // Automatic retry across client variants: web,mweb -> android -> default
+  const clientProfiles = cookiesEnv 
+    ? ["youtube:player_client=web,mweb", "youtube:player_client=android", null]
+    : ["youtube:player_client=android", "youtube:player_client=web,mweb", null];
 
-    const files = fs.readdirSync(tempDir);
-    const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
-    
-    if (!downloadedFile) {
-      throw new Error("Download failed - local file not created");
+  let lastDownloadError = null;
+  try {
+    for (const clientProfile of clientProfiles) {
+      try {
+        if (clientProfile) {
+          ytdlpOptions.extractorArgs = clientProfile;
+        } else {
+          delete ytdlpOptions.extractorArgs;
+        }
+        console.log(`[${debugId}] Downloading audio locally (client=${clientProfile || 'default'}) for: ${targetUrl}`);
+        await youtubedl(targetUrl, ytdlpOptions);
+
+        const files = fs.readdirSync(tempDir);
+        const downloadedFile = files.find((f) => f.startsWith(`tracktune_${debugId}_source.`));
+        if (downloadedFile) {
+          const sourcePath = path.join(tempDir, downloadedFile);
+          console.log(`[${debugId}] Local yt-dlp success. Size: ${fs.statSync(sourcePath).size} bytes`);
+          return sourcePath;
+        }
+      } catch (err) {
+        console.warn(`[${debugId}] Download attempt with ${clientProfile || 'default'} failed: ${err.message}`);
+        lastDownloadError = err;
+      }
     }
-    
-    const sourcePath = path.join(tempDir, downloadedFile);
-    console.log(`[${debugId}] Local yt-dlp success. Size: ${fs.statSync(sourcePath).size} bytes`);
-    return sourcePath;
+
+    throw lastDownloadError || new Error("Download failed - local file not created");
   } finally {
     if (cookieFilePath && fs.existsSync(cookieFilePath)) {
       try { fs.unlinkSync(cookieFilePath); } catch (e) {}
@@ -524,9 +505,7 @@ async function downloadAudio(url, sourceTemplate, debugId) {
   }
 }
 
-// ─────────────────────────────────────────────
-// Main Route
-// ─────────────────────────────────────────────
+// ── Main Route ──
 
 router.post("/identify", async (req, res) => {
   const debugId = crypto.randomUUID();
