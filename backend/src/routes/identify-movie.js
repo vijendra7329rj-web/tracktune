@@ -15,8 +15,8 @@ const execFileAsync = promisify(execFile);
 // Custom transparent child_process wrapper to invoke yt-dlp CLI
 async function youtubedl(url, options) {
   const getBinaryPath = () => {
-    if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
     if (fs.existsSync("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
+    if (fs.existsSync("/tmp/yt-dlp")) return "/tmp/yt-dlp";
     // Check standard node_modules paths
     const nodeModulesPath = path.resolve("node_modules/yt-dlp-exec/bin/yt-dlp");
     if (fs.existsSync(nodeModulesPath)) return nodeModulesPath;
@@ -29,6 +29,7 @@ async function youtubedl(url, options) {
   const args = [url];
   
   if (options.output) args.push("--output", options.output);
+  if (options.format) args.push("-f", options.format);
   if (options.extractAudio) args.push("--extract-audio");
   if (options.audioFormat) args.push("--audio-format", options.audioFormat);
   if (options.noWarnings) args.push("--no-warnings");
@@ -44,7 +45,7 @@ async function youtubedl(url, options) {
   console.log(`[EXEC] Running command: ${binary} ${args.join(" ")}`);
   
   return execFileAsync(binary, args, {
-    timeout: 60000,
+    timeout: 90000,
     maxBuffer: 1024 * 1024 * 10,
   });
 }
@@ -53,7 +54,7 @@ async function youtubedl(url, options) {
 const testKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 if (testKey) {
   console.log(`🔍 DIAGNOSTIC: GEMINI_API_KEY is configured. Length: ${testKey.length}. Starts with AIzaSy: ${testKey.startsWith("AIzaSy")}`);
-  axios.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + testKey)
+  axios.get(`https://generativelanguage.googleapis.com/v1/models?key=${testKey}`)
     .then(res => {
       console.log("🔍 DIAGNOSTIC: Available Gemini Models:", res.data?.models?.map(m => m.name));
     })
@@ -149,7 +150,7 @@ async function downloadViaMirror(url, targetPath, debugId) {
       const response = await axios.post(mirror, {
         url: url,
         codec: "mp3",
-        downloadMode: "auto" // Download full video so we can extract frames
+        downloadMode: "auto"
       }, {
         headers: {
           "Accept": "application/json",
@@ -210,7 +211,6 @@ async function downloadViaRapidAPI(url, targetPath, debugId) {
   });
 
   const medias = response.data?.medias || [];
-  // Prioritize video/MP4 format over audio so we can extract frames!
   const videoMedia = medias.find(m => m.type === "video" || m.extension === "mp4") || medias[0];
   const downloadUrl = videoMedia?.url;
 
@@ -264,7 +264,6 @@ async function downloadViaRapidAPIBackup(url, targetPath, debugId) {
   });
 
   const links = response.data?.links || [];
-  // Prioritize video/mp4 links so we can extract frames
   const videoLinkObj = links.find(l => l.quality === "video" || l.link?.includes(".mp4") || (!l.quality?.includes("audio") && !l.link?.includes(".mp3"))) || response.data?.video || links[0];
   const downloadUrl = typeof videoLinkObj === "string" ? videoLinkObj : videoLinkObj?.link || response.data?.url;
 
@@ -305,11 +304,9 @@ async function downloadVideo(url, sourceTemplate, debugId) {
   const mirrorPath = path.join(tempDir, `tracktune_${debugId}_source.mp4`);
 
   // ── Bulletproof RapidAPI key detection ──
-  // Search ALL env vars for anything containing "RAPID" (handles typos, whitespace in key names)
   let rapidApiKey = process.env.RAPIDAPI_KEY ? process.env.RAPIDAPI_KEY.trim() : null;
   if (!rapidApiKey) {
     const allRapidKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes("RAPID"));
-    console.log(`[${debugId}] RAPIDAPI_KEY not found directly. Scanning env... found keys:`, allRapidKeys);
     for (const altKey of allRapidKeys) {
       const val = process.env[altKey]?.trim();
       if (val && val.length > 10) {
@@ -319,8 +316,6 @@ async function downloadVideo(url, sourceTemplate, debugId) {
     }
   }
 
-  console.log(`[${debugId}] RapidAPI key available: ${!!rapidApiKey}, length: ${rapidApiKey ? rapidApiKey.length : 0}`);
-
   // 1. First Priority: Try Premium RapidAPI Downloader A
   if (rapidApiKey) {
     process.env.RAPIDAPI_KEY = rapidApiKey;
@@ -329,7 +324,6 @@ async function downloadVideo(url, sourceTemplate, debugId) {
       return mirrorPath;
     } catch (rapidError) {
       console.warn(`[${debugId}] Premium RapidAPI Downloader A failed, trying Downloader B...`, rapidError.message);
-      // Try Backup Downloader B
       try {
         await downloadViaRapidAPIBackup(url, mirrorPath, debugId);
         return mirrorPath;
@@ -337,8 +331,6 @@ async function downloadVideo(url, sourceTemplate, debugId) {
         console.warn(`[${debugId}] Premium RapidAPI Downloader B failed, trying fallback mirrors...`, backupError.message);
       }
     }
-  } else {
-    console.error(`[${debugId}] *** CRITICAL: No RapidAPI key found in ANY environment variable! Skipping premium downloaders. ***`);
   }
 
   // 2. Second Priority: Fall back to public Cobalt mirrors
@@ -349,10 +341,11 @@ async function downloadVideo(url, sourceTemplate, debugId) {
     console.warn(`[${debugId}] Public mirror chain failed, falling back to local yt-dlp...`, mirrorError.message);
   }
 
-  // Local yt-dlp fallback
+  // Local yt-dlp fallback (requests low/medium resolution for lightning-fast downloads)
   const ytdlpOptions = {
     output: sourceTemplate,
     noWarnings: true,
+    format: "best[height<=480]/best[height<=720]/best",
     jsRuntime: "node"
   };
 
@@ -361,7 +354,7 @@ async function downloadVideo(url, sourceTemplate, debugId) {
   if (cookiesEnv) {
     cookieFilePath = path.join(tempDir, `yt_cookies_${debugId}.txt`);
     try {
-      fs.writeFileSync(cookieFilePath, cookiesEnv, "utf8");
+      fs.writeFileSync(cookieFilePath, cookiesEnv.replace(/\r\n/g, "\n").trim(), "utf8");
       ytdlpOptions.cookies = cookieFilePath;
       console.log(`[${debugId}] Using YouTube cookies from environment`);
     } catch (e) {
@@ -393,7 +386,7 @@ async function downloadVideo(url, sourceTemplate, debugId) {
   }
 }
 
-// ── Movie Identification & Streaming Lookups ──
+// ── Movie Identification with Gemini Vision ──
 
 async function identifyMovieWithGemini(imagePaths, debugId) {
   const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
@@ -420,13 +413,12 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
 
   const prompt = "Identify the movie or TV show title, release year, and estimate the scene timestamp (e.g. '01:23:45' or 'around 45 mins') from the attached visual frames. The clip might be highly edited (may have color filters or quick cuts). Use actors' faces, settings, visual styles, and any clues in the scenes. Respond ONLY with a JSON object in this exact format: {\"title\": \"Movie Title\", \"year\": 2024, \"confidence\": 95, \"genres\": [\"Action\"], \"scene_timestamp\": \"estimated timestamp or scene description\"}. If you cannot identify it, set title to empty string and year, confidence and scene_timestamp to 0.";
 
+  // Standard verified Gemini vision models
   const modelsToTry = [
-    "gemini-3.5-flash-lite", // Priority: high speed & availability
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.1-pro",
-    "gemini-1.5-pro",
-    "gemini-3.6-flash"
+    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro"
   ];
 
   let lastError = null;
@@ -446,7 +438,7 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
           responseMimeType: "application/json"
         }
       }, {
-        timeout: 40000 // 40 seconds per attempt
+        timeout: 35000
       });
 
       const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -454,7 +446,12 @@ async function identifyMovieWithGemini(imagePaths, debugId) {
         throw new Error(`Gemini model ${model} returned empty response.`);
       }
 
-      const result = JSON.parse(responseText.trim());
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith("```")) {
+        cleanedText = cleanedText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+      }
+
+      const result = JSON.parse(cleanedText);
       console.log(`[${debugId}] Gemini model ${model} response:`, result);
       return result;
     } catch (err) {
@@ -497,32 +494,33 @@ router.post("/identify-movie", async (req, res) => {
     // 3. Ask Gemini to identify movie
     const geminiResult = await identifyMovieWithGemini(imagePaths, debugId);
 
-    if (!geminiResult.title || geminiResult.confidence < 50) {
+    if (!geminiResult.title || Number(geminiResult.confidence) < 50) {
       return res.status(404).json({
         error: "TrackTune AI could not identify this movie. Make sure the video contains movie footage.",
         debugId
       });
     }
 
+    const movieYear = parseInt(geminiResult.year, 10) || 0;
+
     // ── DATABASE CACHE CHECK ──
-    // Check if we have already saved this movie before
     let movie = null;
     try {
       const existingMovies = await db.select().from(moviesTable)
-        .where(and(eq(moviesTable.title, geminiResult.title), eq(moviesTable.year, geminiResult.year)))
+        .where(and(eq(moviesTable.title, geminiResult.title), eq(moviesTable.year, movieYear)))
         .limit(1);
 
       if (existingMovies.length > 0) {
         console.log(`[${debugId}] Database Cache Hit for: "${geminiResult.title}"`);
         movie = existingMovies[0];
       } else {
-        // Save to database with blank streaming details
+        // Save to database
         const [newMovie] = await db.insert(moviesTable).values({
           title: geminiResult.title,
-          year: geminiResult.year,
+          year: movieYear,
           overview: "Movie identified via TrackTune AI.",
           posterUrl: "",
-          genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
+          genre: Array.isArray(geminiResult.genres) ? geminiResult.genres.join(", ") : (geminiResult.genres || "Drama"),
           watchmodeId: "",
           watchLinks: "[]",
           backdropUrl: "",
@@ -537,17 +535,17 @@ router.post("/identify-movie", async (req, res) => {
         movieId: movie.id,
         title: movie.title,
         year: movie.year,
-        posterUrl: movie.posterUrl,
+        posterUrl: movie.posterUrl || "",
       });
     } catch (dbError) {
       console.warn(`[${debugId}] Database save/cache error (returning movie directly):`, dbError.message);
       movie = {
         id: "local-" + Date.now(),
         title: geminiResult.title,
-        year: geminiResult.year,
+        year: movieYear,
         overview: "Movie identified via TrackTune AI.",
         posterUrl: "",
-        genre: geminiResult.genres ? geminiResult.genres.join(", ") : "Drama",
+        genre: Array.isArray(geminiResult.genres) ? geminiResult.genres.join(", ") : (geminiResult.genres || "Drama"),
         watchLinks: "[]",
         backdropUrl: "",
         trailerUrl: "",
@@ -561,7 +559,7 @@ router.post("/identify-movie", async (req, res) => {
       overview: movie.overview,
       posterUrl: movie.posterUrl,
       genre: movie.genre,
-      watchLinks: JSON.parse(movie.watchLinks),
+      watchLinks: JSON.parse(movie.watchLinks || "[]"),
       backdropUrl: movie.backdropUrl,
       trailerUrl: movie.trailerUrl,
       confidence: geminiResult.confidence || 0,
